@@ -199,6 +199,70 @@ public sealed class AppInstallDialogViewModelTests : IDisposable
 	}
 
 	[Fact]
+	public async Task InstallDialogOnlyOffersDlcWithInstallableFiles()
+	{
+		var repository = new ControlledManifestRepository();
+		var storage = new Storage(_logger, _root, Path.Combine(_root, "games"));
+		var game = CreateGame("game", "Game", "image");
+		storage.SaveMetaData(game);
+		repository.Complete(game.AppName, CreateContentManifest(("base.exe", ["internal-tag"])));
+		foreach (var name in new[] { "expansion", "cosmetic", "unavailable", "no-windows" })
+		{
+			var dlc = CreateGame(name, name, "image");
+			dlc.Metadata.MainGameItem = new MainGameItem { Id = game.Metadata.Id };
+			if (name == "no-windows")
+				dlc.AssetInfos.Windows = null!;
+			storage.SaveMetaData(dlc);
+		}
+		repository.Complete("expansion", CreateJsonManifest(100, 10));
+		repository.Complete("cosmetic", CreateContentManifest());
+		repository.Complete("unavailable", Encoding.UTF8.GetBytes("invalid manifest"));
+		var library = CreateLibrary(storage, repository);
+		var installer = new InstallManager(_logger, library, repository, storage,
+			new DownloadManager(_logger, new HttpClient()), new UnusedShortcutManager(), new AllowInstallPermissionChecker());
+		var vm = new AppInstallDialogViewModel(_logger, installer, library, storage, new ImmediateUiDispatcher());
+		var requestedClose = false;
+		vm.RequestClose += () => requestedClose = true;
+
+		await vm.InitializeAsync(game).WaitAsync(TimeSpan.FromSeconds(5));
+
+		Assert.False(requestedClose);
+		Assert.False(vm.IsLoadingContent);
+		Assert.True(vm.CanInstall);
+		Assert.True(vm.HasDlcs);
+		Assert.Equal("expansion", Assert.Single(vm.AvailableDlcs).AppName);
+		Assert.True(vm.AvailableDlcs.Single().IsSelected);
+		Assert.True(Assert.Single(vm.AvailableInstallTags).IsSelected);
+		Assert.Equal("100 B", vm.TotalDownloadSize);
+		Assert.Equal("10 B", vm.TotalInstallSize);
+		vm.AvailableDlcs.Single().IsSelected = false;
+		Assert.Equal("0 B", vm.TotalDownloadSize);
+	}
+
+	[Fact]
+	public async Task ManageDialogPreservesHiddenInstalledEntitlementsAndTagSelection()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		game.LocalAppState!.SelectedInstallTags = ["en"];
+		var entitlement = library.GetGameInfo("dlc");
+		await storage.CacheManifestBytes(entitlement.AppName, "1.0", CreateContentManifest());
+		var vm = new AppInstallDialogViewModel(_logger, installer, library, storage, new ImmediateUiDispatcher());
+		await vm.InitializeAsync(game);
+
+		Assert.Empty(vm.AvailableDlcs);
+		Assert.False(vm.HasDlcs);
+		Assert.True(vm.CanInstall);
+		var completed = WaitForAction(installer, game.AppName);
+		vm.ConfirmInstallCommand.Execute(null);
+		await completed;
+
+		Assert.Equal(InstallState.Installed, entitlement.LocalAppState!.InstallStatus);
+		Assert.Equal(["en"], game.LocalAppState.SelectedInstallTags);
+		Assert.True(File.Exists(Path.Combine(game.LocalAppState.InstallPath, "dlc.bin")));
+		Assert.Empty(installer.GetQueueItemNames());
+	}
+
+	[Fact]
 	public async Task ManageDialogUsesInstalledFolderAndPreselectsInstalledContent()
 	{
 		var (storage, library, installer, game) = await CreateContentInstallation();

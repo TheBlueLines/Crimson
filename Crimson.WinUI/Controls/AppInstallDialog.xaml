@@ -102,64 +102,65 @@
 			</StackPanel>
 
 			<!--  Content Selection  -->
-			<StackPanel x:Name="ContentSelection" Visibility="{x:Bind ViewModel.IsLoadingContent, Mode=OneWay, Converter={StaticResource BoolToInverseVisibilityConverter}}">
-				<TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Content to Install" />
+			<ScrollViewer
+				MaxHeight="240"
+				HorizontalScrollMode="Disabled"
+				HorizontalScrollBarVisibility="Disabled"
+				VerticalScrollMode="Enabled"
+				VerticalScrollBarVisibility="Auto"
+				Visibility="{x:Bind ViewModel.IsLoadingContent, Mode=OneWay, Converter={StaticResource BoolToInverseVisibilityConverter}}">
+				<StackPanel x:Name="ContentSelection">
+					<TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Content to Install" />
 
-				<!--  Base Game  -->
-				<Grid
-					MaxWidth="400"
-					Margin="0,12,0,0"
-					HorizontalAlignment="Left"
-					ColumnSpacing="0">
-					<Grid.ColumnDefinitions>
-						<ColumnDefinition Width="24" />
-						<ColumnDefinition Width="Auto" />
-						<ColumnDefinition Width="Auto" />
-					</Grid.ColumnDefinitions>
-					<CheckBox IsChecked="True" IsEnabled="False" />
-					<TextBlock
-						Grid.Column="1"
-						Margin="8,0,0,0"
-						VerticalAlignment="Center"
-						Text="Base Game" />
-					<TextBlock
-						Grid.Column="2"
-						Margin="8,0,0,0"
-						VerticalAlignment="Center"
-						Text="{x:Bind ViewModel.BaseGameSize, Mode=OneWay}" />
-				</Grid>
+					<!--  Base Game  -->
+					<Grid
+						MaxWidth="400"
+						Margin="0,12,0,0"
+						HorizontalAlignment="Left"
+						ColumnSpacing="0">
+						<Grid.ColumnDefinitions>
+							<ColumnDefinition Width="24" />
+							<ColumnDefinition Width="Auto" />
+							<ColumnDefinition Width="Auto" />
+						</Grid.ColumnDefinitions>
+						<CheckBox IsChecked="True" IsEnabled="False" />
+						<TextBlock
+							Grid.Column="1"
+							Margin="8,0,0,0"
+							VerticalAlignment="Center"
+							Text="Base Game" />
+						<TextBlock
+							Grid.Column="2"
+							Margin="8,0,0,0"
+							VerticalAlignment="Center"
+							Text="{x:Bind ViewModel.BaseGameSize, Mode=OneWay}" />
+					</Grid>
 
-				<ItemsRepeater ItemsSource="{x:Bind ViewModel.AvailableInstallTags, Mode=OneWay}">
-					<ItemsRepeater.ItemTemplate>
-						<DataTemplate x:DataType="models:DlcOption">
-							<CheckBox Content="{x:Bind Title}" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" />
-						</DataTemplate>
-					</ItemsRepeater.ItemTemplate>
-				</ItemsRepeater>
-
-				<!--  DLC/Add-ons List  -->
-				<ItemsRepeater
-					Margin="0,4,0,0"
-					ItemsSource="{x:Bind ViewModel.AvailableDlcs, Mode=OneWay}"
-					Visibility="{x:Bind ViewModel.HasDlcs, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
-					<ItemsRepeater.ItemTemplate>
-						<DataTemplate x:DataType="models:DlcOption">
-							<Grid Margin="0,4,0,0" MaxWidth="400" HorizontalAlignment="Left">
-								<Grid.ColumnDefinitions>
-									<ColumnDefinition Width="24" />
-									<ColumnDefinition Width="*" />
-								</Grid.ColumnDefinitions>
-								<CheckBox IsChecked="{x:Bind IsSelected, Mode=TwoWay}" />
-								<TextBlock
-									Grid.Column="1"
-									Margin="8,0,0,0"
-									VerticalAlignment="Center"
-									Text="{x:Bind Title}" />
-							</Grid>
-						</DataTemplate>
-					</ItemsRepeater.ItemTemplate>
-				</ItemsRepeater>
-			</StackPanel>
+					<!--  DLC/Add-ons List  -->
+					<ItemsRepeater
+						Margin="0,4,0,0"
+						ItemsSource="{x:Bind ViewModel.AvailableDlcs, Mode=OneWay}"
+						Visibility="{x:Bind ViewModel.HasDlcs, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+						<ItemsRepeater.ItemTemplate>
+							<DataTemplate x:DataType="models:DlcOption">
+								<Grid Margin="0,4,0,0" MaxWidth="400" HorizontalAlignment="Left">
+									<Grid.ColumnDefinitions>
+										<ColumnDefinition Width="24" />
+										<ColumnDefinition Width="*" />
+									</Grid.ColumnDefinitions>
+									<CheckBox IsChecked="{x:Bind IsSelected, Mode=TwoWay}" />
+									<TextBlock
+										Grid.Column="1"
+										Margin="8,0,0,0"
+										VerticalAlignment="Center"
+										TextWrapping="Wrap"
+										Text="{x:Bind Title}" />
+								</Grid>
+							</DataTemplate>
+						</ItemsRepeater.ItemTemplate>
+					</ItemsRepeater>
+				</StackPanel>
+			</ScrollViewer>
 
 			<!--  Loading State  -->
 			<StackPanel x:Name="LoadingState" Visibility="{x:Bind ViewModel.IsLoadingContent, Mode=OneWay}">

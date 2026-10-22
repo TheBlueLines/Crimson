@@ -149,25 +149,40 @@ public partial class AppInstallDialogViewModel : ObservableObject
 
 			AvailableDlcs.Clear();
 			var dlcs = _libraryManager.GetDlcsForGame(gameInfo.AppName);
-			HasDlcs = dlcs.Count > 0;
 			foreach (var dlc in dlcs)
 			{
 				if (dlc.LocalAppState?.InstallStatus is InstallState.Installed or InstallState.NeedUpdate)
 					generation.InstalledDlcs.Add(dlc.AppName);
-				AvailableDlcs.Add(new DlcOption
-				{
-					AppName = dlc.AppName,
-					Title = dlc.AppTitle,
-					IsSelected = !IsManageContent || generation.InstalledDlcs.Contains(dlc.AppName)
-				});
 			}
 
 			var manifest = await _installManager.GetContentManifestAsync(gameInfo.AppName, IsManageContent, cancellationToken).ConfigureAwait(false);
 			generation.Manifests[gameInfo.AppName] = manifest;
+			var installableDlcs = new List<Game>();
 			foreach (var dlc in dlcs)
 			{
-				generation.Manifests[dlc.AppName] = await _installManager.GetContentManifestAsync(
-					dlc.AppName, IsManageContent && generation.InstalledDlcs.Contains(dlc.AppName), cancellationToken).ConfigureAwait(false);
+				cancellationToken.ThrowIfCancellationRequested();
+				if (!IsCurrentInitialization(generation))
+					return;
+				if (dlc.AssetInfos?.Windows is null)
+					continue;
+				try
+				{
+					var dlcManifest = await _installManager.GetContentManifestAsync(
+						dlc.AppName, IsManageContent && generation.InstalledDlcs.Contains(dlc.AppName), cancellationToken).ConfigureAwait(false);
+					// Entitlements such as cosmetic packs have nothing to install separately.
+					if (dlcManifest.FileManifestList.Elements.Count == 0)
+						continue;
+					generation.Manifests[dlc.AppName] = dlcManifest;
+					installableDlcs.Add(dlc);
+				}
+				catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+				{
+					throw;
+				}
+				catch (Exception ex)
+				{
+					_logger.Warning(ex, "Skipping DLC without an available content manifest: {AppName}", dlc.AppName);
+				}
 			}
 			var sizes = InstallManager.CalculateManifestSizes(manifest);
 			cancellationToken.ThrowIfCancellationRequested();
@@ -181,6 +196,17 @@ public partial class AppInstallDialogViewModel : ObservableObject
 					return;
 
 				BaseGameSize = IsManageContent ? "Installed" : FormatSize(sizes.WriteBytes);
+				AvailableDlcs.Clear();
+				foreach (var dlc in installableDlcs)
+				{
+					AvailableDlcs.Add(new DlcOption
+					{
+						AppName = dlc.AppName,
+						Title = dlc.AppTitle,
+						IsSelected = !IsManageContent || generation.InstalledDlcs.Contains(dlc.AppName)
+					});
+				}
+				HasDlcs = AvailableDlcs.Count > 0;
 				AvailableInstallTags.Clear();
 				foreach (var tag in manifest.FileManifestList.Elements.SelectMany(file => file.InstallTags)
 					.Where(tag => !string.IsNullOrEmpty(tag)).Distinct(StringComparer.Ordinal).Order())
@@ -358,9 +384,14 @@ public partial class AppInstallDialogViewModel : ObservableObject
 			return;
 		if (IsManageContent)
 		{
+			var generation = Volatile.Read(ref _initialization);
+			var visibleDlcs = AvailableDlcs.Select(option => option.AppName).ToHashSet(StringComparer.Ordinal);
+			// Hidden or unavailable installed DLC must remain untouched by this dialog.
+			var selectedDlcs = AvailableDlcs.Where(option => option.IsSelected).Select(option => option.AppName)
+				.Concat(generation.InstalledDlcs.Where(appName => !visibleDlcs.Contains(appName)));
 			if (!_installManager.TryQueueContentChange(_gameAppName,
 				AvailableInstallTags.Where(option => option.IsSelected).Select(option => option.AppName),
-				AvailableDlcs.Where(option => option.IsSelected).Select(option => option.AppName)))
+				selectedDlcs))
 			{
 				SelectionError = "The game must be installed and idle to change its content.";
 				return;
