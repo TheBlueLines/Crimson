@@ -9,43 +9,43 @@ using H.NotifyIcon;
 
 namespace Crimson.Views
 {
-    [ObservableObject]
-    public sealed partial class TrayIconView : UserControl
-    {
-        [ObservableProperty]
-        private bool _isWindowVisible;
+	[ObservableObject]
+	public sealed partial class TrayIconView : UserControl
+	{
+		[ObservableProperty]
+		private bool _isWindowVisible;
 
-        public TrayIconView()
-        {
-            InitializeComponent();
-        }
+		public TrayIconView()
+		{
+			InitializeComponent();
+		}
 
-        [RelayCommand]
-        public void ShowHideWindow()
-        {
-            var window = ((App)Application.Current).GetWindow();
-            if (window == null)
-            {
-                return;
-            }
+		[RelayCommand]
+		public void ShowHideWindow()
+		{
+			var window = ((App)Application.Current).GetWindow();
+			if (window == null)
+			{
+				return;
+			}
 
-            if (window.Visible)
-            {
-                window.Hide();
-            }
-            else
-            {
-                window.Show();
-            }
-            IsWindowVisible = window.Visible;
-        }
+			if (window.Visible)
+			{
+				window.Hide();
+			}
+			else
+			{
+				window.Show();
+			}
+			IsWindowVisible = window.Visible;
+		}
 
-        [RelayCommand]
-        public void ExitApplication()
-        {
-            App.HandleClosedEvents = false;
-            TrayIcon.Dispose();
-            ((App)Application.Current).GetWindow()?.Close();
-        }
-    }
+		[RelayCommand]
+		public void ExitApplication()
+		{
+			App.HandleClosedEvents = false;
+			TrayIcon.Dispose();
+			((App)Application.Current).GetWindow()?.Close();
+		}
+	}
 }

@@ -1,6 +1,6 @@
-namespace Crimson.Core;
+﻿namespace Crimson.Core;
 
 public interface IFolderLauncher
 {
-    void Open(string path);
+	void Open(string path);
 }

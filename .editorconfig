@@ -3,9 +3,11 @@
 # top-most EditorConfig file
 root = true
 
-# Don't use tabs for indentation.
+# Use tabs for indentation.
 [*]
-indent_style = space
+indent_style = tab
+indent_size = 4
+tab_width = 4
 
 # Code files
 [*.{cs,csx,vb,vbx}]

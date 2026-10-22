@@ -3,7 +3,7 @@
 namespace Crimson.Interfaces;
 public interface INavigationAware
 {
-    Task OnNavigatedTo(object parameter);
-    void OnNavigatedFrom();
+	Task OnNavigatedTo(object parameter);
+	void OnNavigatedFrom();
 }
 

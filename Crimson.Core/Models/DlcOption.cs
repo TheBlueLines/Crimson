@@ -7,9 +7,9 @@ namespace Crimson.Models;
 /// </summary>
 public partial class DlcOption : ObservableObject
 {
-    public string AppName { get; set; }
-    public string Title { get; set; }
+	public string AppName { get; set; }
+	public string Title { get; set; }
 
-    [ObservableProperty]
-    private bool _isSelected;
+	[ObservableProperty]
+	private bool _isSelected;
 }

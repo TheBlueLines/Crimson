@@ -1,87 +1,87 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <Page
-    x:Class="Crimson.Views.SettingsPage"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:local="using:Crimson.Views"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
-    xmlns:ui="using:CommunityToolkit.WinUI"
-    mc:Ignorable="d">
+	x:Class="Crimson.Views.SettingsPage"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+	xmlns:local="using:Crimson.Views"
+	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+	xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
+	xmlns:ui="using:CommunityToolkit.WinUI"
+	mc:Ignorable="d">
 
-    <Page.Resources>
-        <x:Double x:Key="SettingsCardSpacing">3</x:Double>
-        <Style
-            x:Key="SettingsSectionHeaderTextBlockStyle"
-            BasedOn="{StaticResource BodyStrongTextBlockStyle}"
-            TargetType="TextBlock">
-            <Style.Setters>
-                <Setter Property="Margin" Value="1,29,0,5" />
-            </Style.Setters>
-        </Style>
-    </Page.Resources>
+	<Page.Resources>
+		<x:Double x:Key="SettingsCardSpacing">3</x:Double>
+		<Style
+			x:Key="SettingsSectionHeaderTextBlockStyle"
+			BasedOn="{StaticResource BodyStrongTextBlockStyle}"
+			TargetType="TextBlock">
+			<Style.Setters>
+				<Setter Property="Margin" Value="1,29,0,5" />
+			</Style.Setters>
+		</Style>
+	</Page.Resources>
 
-    <Grid x:Name="RootGrid">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-
-
-        <TextBlock
-            x:Name="PageHeader"
-            Margin="36,24,36,0"
-            Style="{StaticResource TitleTextBlockStyle}"
-            Text="Settings" />
-
-        <ScrollViewer
-            x:Name="contentSV"
-            Grid.Row="1"
-            Padding="36,0,36,0"
-            IsTabStop="False"
-            UseSystemFocusVisuals="False"
-            VerticalScrollBarVisibility="Auto"
-            VerticalScrollMode="Auto">
-            <StackPanel Spacing="{StaticResource SettingsCardSpacing}">
-                <StackPanel.ChildrenTransitions>
-                    <EntranceThemeTransition FromVerticalOffset="50" />
-                    <RepositionThemeTransition IsStaggeringEnabled="False" />
-                </StackPanel.ChildrenTransitions>
+	<Grid x:Name="RootGrid">
+		<Grid.RowDefinitions>
+			<RowDefinition Height="Auto" />
+			<RowDefinition Height="*" />
+		</Grid.RowDefinitions>
 
 
-                <TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Appearance" />
+		<TextBlock
+			x:Name="PageHeader"
+			Margin="36,24,36,0"
+			Style="{StaticResource TitleTextBlockStyle}"
+			Text="Settings" />
 
-                <toolkit:SettingsCard Description="Enable the mica effects available on Windows 11" Header="Enable Mica">
-                    <ToggleSwitch IsOn="{x:Bind ViewModel.MicaEnabled, Mode=TwoWay}" />
-                </toolkit:SettingsCard>
+		<ScrollViewer
+			x:Name="contentSV"
+			Grid.Row="1"
+			Padding="36,0,36,0"
+			IsTabStop="False"
+			UseSystemFocusVisuals="False"
+			VerticalScrollBarVisibility="Auto"
+			VerticalScrollMode="Auto">
+			<StackPanel Spacing="{StaticResource SettingsCardSpacing}">
+				<StackPanel.ChildrenTransitions>
+					<EntranceThemeTransition FromVerticalOffset="50" />
+					<RepositionThemeTransition IsStaggeringEnabled="False" />
+				</StackPanel.ChildrenTransitions>
 
-                <TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Accounts" />
 
-                <toolkit:SettingsCard
-                    Command="{x:Bind ViewModel.LogoutCommand}"
-                    Description="This will log you out from the current account and return to the sign-in screen"
-                    Header="Logout"
-                    IsClickEnabled="True" />
+				<TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Appearance" />
 
-                <TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Advanced Settings" />
+				<toolkit:SettingsCard Description="Enable the mica effects available on Windows 11" Header="Enable Mica">
+					<ToggleSwitch IsOn="{x:Bind ViewModel.MicaEnabled, Mode=TwoWay}" />
+				</toolkit:SettingsCard>
 
-                <toolkit:SettingsExpander
-                    x:Name="AdvancedSettingsCard"
-                    Header="Show adavanced Settings"
-                    HeaderIcon="{ui:FontIcon Glyph=&#xE713;}"
-                    IsExpanded="{x:Bind ViewModel.AdvancedSettingsExpanded, Mode=TwoWay}">
+				<TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Accounts" />
 
-                    <toolkit:SettingsExpander.Items>
-                        <toolkit:SettingsCard
-                            Command="{x:Bind ViewModel.OpenLogsDirectoryCommand}"
-                            Header="Open Logs Directory"
-                            IsClickEnabled="True" />
-                    </toolkit:SettingsExpander.Items>
-                </toolkit:SettingsExpander>
+				<toolkit:SettingsCard
+					Command="{x:Bind ViewModel.LogoutCommand}"
+					Description="This will log you out from the current account and return to the sign-in screen"
+					Header="Logout"
+					IsClickEnabled="True" />
 
-            </StackPanel>
+				<TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Advanced Settings" />
 
-        </ScrollViewer>
-    </Grid>
+				<toolkit:SettingsExpander
+					x:Name="AdvancedSettingsCard"
+					Header="Show adavanced Settings"
+					HeaderIcon="{ui:FontIcon Glyph=&#xE713;}"
+					IsExpanded="{x:Bind ViewModel.AdvancedSettingsExpanded, Mode=TwoWay}">
+
+					<toolkit:SettingsExpander.Items>
+						<toolkit:SettingsCard
+							Command="{x:Bind ViewModel.OpenLogsDirectoryCommand}"
+							Header="Open Logs Directory"
+							IsClickEnabled="True" />
+					</toolkit:SettingsExpander.Items>
+				</toolkit:SettingsExpander>
+
+			</StackPanel>
+
+		</ScrollViewer>
+	</Grid>
 </Page>

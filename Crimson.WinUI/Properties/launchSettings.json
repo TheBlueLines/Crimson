@@ -1,10 +1,10 @@
 {
   "profiles": {
-    "Crimson (Package)": {
-      "commandName": "MsixPackage"
-    },
-    "Crimson (Unpackaged)": {
-      "commandName": "Project"
-    }
+	"Crimson (Package)": {
+	  "commandName": "MsixPackage"
+	},
+	"Crimson (Unpackaged)": {
+	  "commandName": "Project"
+	}
   }
 }

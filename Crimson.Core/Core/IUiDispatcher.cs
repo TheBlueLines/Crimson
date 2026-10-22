@@ -1,8 +1,8 @@
-using System;
+﻿using System;
 
 namespace Crimson.Core;
 
 public interface IUiDispatcher
 {
-    bool TryEnqueue(Action callback);
+	bool TryEnqueue(Action callback);
 }

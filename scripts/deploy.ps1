@@ -7,7 +7,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Thumbprint = '5B29FDD5D9CBF949BFADF50BA7FCF3996633421F',
+    [string]$Thumbprint = '09FB8E2FE8A6D3273F3AB1F9D4CCFB85EC88D5CD',
     [switch]$Force,
     [switch]$NoLaunch
 )

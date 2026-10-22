@@ -10,46 +10,46 @@ namespace Crimson.Views;
 /// </summary>
 public sealed partial class LibraryPage : Page
 {
-    public LibraryViewModel ViewModel => (LibraryViewModel)DataContext;
+	public LibraryViewModel ViewModel => (LibraryViewModel)DataContext;
 
-    public LibraryPage()
-    {
-        InitializeComponent();
-        DataContext = App.GetService<LibraryViewModel>();
-    }
+	public LibraryPage()
+	{
+		InitializeComponent();
+		DataContext = App.GetService<LibraryViewModel>();
+	}
 
-    protected override async void OnNavigatedTo(NavigationEventArgs e)
-    {
-        await ViewModel.OnNavigatedTo(e.Parameter);
-    }
+	protected override async void OnNavigatedTo(NavigationEventArgs e)
+	{
+		await ViewModel.OnNavigatedTo(e.Parameter);
+	}
 
-    protected override void OnNavigatedFrom(NavigationEventArgs e)
-    {
-        ViewModel.OnNavigatedFrom();
-        base.OnNavigatedFrom(e);
-    }
+	protected override void OnNavigatedFrom(NavigationEventArgs e)
+	{
+		ViewModel.OnNavigatedFrom();
+		base.OnNavigatedFrom(e);
+	}
 
-    private void GameButton_Click(object sender, RoutedEventArgs e)
-    {
-        var clickedButton = (Button)sender;
-        var game = (LibraryItem)clickedButton.DataContext;
-        var navControl = FindParentFrame(this);
+	private void GameButton_Click(object sender, RoutedEventArgs e)
+	{
+		var clickedButton = (Button)sender;
+		var game = (LibraryItem)clickedButton.DataContext;
+		var navControl = FindParentFrame(this);
 
-        if (navControl == null)
-            return;
+		if (navControl == null)
+			return;
 
-        navControl.Navigate(typeof(GameInfoPage), game.Name);
-    }
+		navControl.Navigate(typeof(GameInfoPage), game.Name);
+	}
 
-    private static Frame FindParentFrame(DependencyObject child)
-    {
-        var parent = VisualTreeHelper.GetParent(child);
+	private static Frame FindParentFrame(DependencyObject child)
+	{
+		var parent = VisualTreeHelper.GetParent(child);
 
-        while (parent != null && parent is not Microsoft.UI.Xaml.Controls.Frame)
-        {
-            parent = VisualTreeHelper.GetParent(parent);
-        }
+		while (parent != null && parent is not Microsoft.UI.Xaml.Controls.Frame)
+		{
+			parent = VisualTreeHelper.GetParent(parent);
+		}
 
-        return parent as Frame;
-    }
+		return parent as Frame;
+	}
 }

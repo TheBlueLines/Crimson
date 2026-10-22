@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
@@ -8,32 +8,46 @@ namespace Crimson.Utils;
 
 public static class WebViewEnvironmentFactory
 {
-    public static async Task<CoreWebView2Environment> CreateAsync()
-    {
-        var userDataFolder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Crimson",
-            "webview2");
-        Directory.CreateDirectory(userDataFolder);
+	private static readonly object EnvironmentLock = new();
+	private static Task<CoreWebView2Environment>? _environmentTask;
 
-        return await CoreWebView2Environment.CreateWithOptionsAsync(
-            string.Empty, userDataFolder, new CoreWebView2EnvironmentOptions());
-    }
+	public static Task<CoreWebView2Environment> CreateAsync()
+	{
+		lock (EnvironmentLock)
+		{
+			if (_environmentTask is null || _environmentTask.IsFaulted || _environmentTask.IsCanceled)
+				_environmentTask = CreateCoreAsync();
 
-    public static Task WaitForLoadedAsync(FrameworkElement element)
-    {
-        if (element.IsLoaded)
-            return Task.CompletedTask;
+			return _environmentTask;
+		}
+	}
 
-        var loaded = new TaskCompletionSource();
+	private static async Task<CoreWebView2Environment> CreateCoreAsync()
+	{
+		var userDataFolder = Path.Combine(
+			Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+			"Crimson",
+			"webview2");
+		Directory.CreateDirectory(userDataFolder);
 
-        void OnLoaded(object sender, RoutedEventArgs args)
-        {
-            element.Loaded -= OnLoaded;
-            loaded.TrySetResult();
-        }
+		return await CoreWebView2Environment.CreateWithOptionsAsync(
+			string.Empty, userDataFolder, new CoreWebView2EnvironmentOptions());
+	}
 
-        element.Loaded += OnLoaded;
-        return loaded.Task;
-    }
+	public static Task WaitForLoadedAsync(FrameworkElement element)
+	{
+		if (element.IsLoaded)
+			return Task.CompletedTask;
+
+		var loaded = new TaskCompletionSource();
+
+		void OnLoaded(object sender, RoutedEventArgs args)
+		{
+			element.Loaded -= OnLoaded;
+			loaded.TrySetResult();
+		}
+
+		element.Loaded += OnLoaded;
+		return loaded.Task;
+	}
 }

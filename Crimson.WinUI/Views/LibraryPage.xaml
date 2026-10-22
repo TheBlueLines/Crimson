@@ -1,69 +1,139 @@
 <Page
-    x:Class="Crimson.Views.LibraryPage"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:converters="using:CommunityToolkit.WinUI.Converters"
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:utils="using:Crimson.Utils"
-    xmlns:viewModels="using:Crimson.ViewModels"
-    mc:Ignorable="d">
+	x:Class="Crimson.Views.LibraryPage"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:controls="using:Crimson.Controls"
+	xmlns:converters="using:CommunityToolkit.WinUI.Converters"
+	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+	xmlns:utils="using:Crimson.Utils"
+	xmlns:viewModels="using:Crimson.ViewModels"
+	mc:Ignorable="d">
 
-    <Grid x:Name="GamesGrid" HorizontalAlignment="Center">
-        <Grid.Resources>
-            <UniformGridLayout x:Name="UniformGridLayout" />
-            <DataTemplate x:Key="GameCardTemplate" x:DataType="viewModels:LibraryItem">
-                <Button
-                    Padding="16,16,16,16"
-                    Background="Transparent"
-                    BorderThickness="0"
-                    Click="GameButton_Click"
-                    DataContext="{x:Bind}">
-                    <StackPanel Spacing="20">
-                        <Image
-                            Width="226"
-                            Height="300"
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            Source="{x:Bind ImageUrl, Converter={StaticResource ImageUrlConverter}}"
-                            Stretch="UniformToFill" />
-                        <TextBlock
-                            MaxWidth="200"
-                            HorizontalAlignment="Left"
-                            VerticalAlignment="Bottom"
-                            FontSize="18"
-                            Foreground="White"
-                            Text="{x:Bind Title}"
-                            TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                </Button>
-            </DataTemplate>
-        </Grid.Resources>
+	<Page.Resources>
+		<converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+		<utils:ImageUrlConverter x:Key="ImageUrlConverter" />
 
-        <StackPanel
-            x:Name="LoadingSection"
-            VerticalAlignment="Center"
-            Visibility="{x:Bind ViewModel.ShowLoadingScreen, Converter={StaticResource BoolToVisibilityConverter}, Mode=TwoWay}">
-            <ProgressRing
-                Width="50"
-                Height="50"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                Foreground="White"
-                IsActive="True" />
-            <TextBlock>Loading...</TextBlock>
-        </StackPanel>
+		<!--  Darkens the bottom of each cover so the title stays readable.  -->
+		<LinearGradientBrush x:Key="CardScrimBrush" StartPoint="0,0" EndPoint="0,1">
+			<GradientStop Offset="0.45" Color="Transparent" />
+			<GradientStop Offset="1" Color="#BF000000" />
+		</LinearGradientBrush>
 
-        <ItemsRepeater
-            x:Name="ItemsRepeater"
-            Margin="0,20,0,20"
-            ItemTemplate="{StaticResource GameCardTemplate}"
-            ItemsSource="{x:Bind ViewModel.GamesList, Mode=TwoWay}"
-            Layout="{StaticResource UniformGridLayout}" />
-    </Grid>
+		<DataTemplate x:Key="GameCardTemplate" x:DataType="viewModels:LibraryItem">
+			<Button
+				Width="216"
+				Height="290"
+				Padding="0"
+				HorizontalAlignment="Stretch"
+				VerticalAlignment="Stretch"
+				Background="Transparent"
+				BorderThickness="0"
+				Click="GameButton_Click"
+				DataContext="{x:Bind}"
+				ToolTipService.ToolTip="{x:Bind Title}">
+				<Button.Resources>
+					<!--  Rounds the hover/pressed highlight so it follows the cover art.  -->
+					<CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
+					<CornerRadius x:Key="OverlayCornerRadius">8</CornerRadius>
+				</Button.Resources>
+				<Grid>
+					<Border
+						Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+						CornerRadius="8">
+						<controls:GameCover
+							ColorReveal="{x:Bind ColorReveal, Mode=OneWay}"
+							ImageUrl="{x:Bind ImageUrl}" />
+					</Border>
+					<Border
+						Height="92"
+						VerticalAlignment="Bottom"
+						CornerRadius="0,0,8,8"
+						Background="{StaticResource CardScrimBrush}" />
+					<TextBlock
+						MaxLines="2"
+						Margin="12,0,12,10"
+						VerticalAlignment="Bottom"
+						FontSize="14"
+						FontWeight="SemiBold"
+						Foreground="White"
+						Text="{x:Bind Title}"
+						TextTrimming="CharacterEllipsis"
+						TextWrapping="WrapWholeWords" />
+				</Grid>
+			</Button>
+		</DataTemplate>
+	</Page.Resources>
 
-    <Page.Resources>
-        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
-        <utils:ImageUrlConverter x:Key="ImageUrlConverter" />
-    </Page.Resources>
+	<Grid>
+		<ScrollViewer
+			Padding="36,24,36,36"
+			HorizontalScrollBarVisibility="Disabled"
+			VerticalScrollBarVisibility="Auto">
+			<StackPanel Spacing="20">
+				<StackPanel Spacing="4">
+					<TextBlock Style="{StaticResource TitleLargeTextBlockStyle}" Text="Library" />
+					<TextBlock
+						Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+						Style="{StaticResource BodyTextBlockStyle}"
+						Text="All games in your Epic Games library" />
+				</StackPanel>
+
+				<Grid MinHeight="320">
+					<ItemsRepeater
+						x:Name="ItemsRepeater"
+						ItemTemplate="{StaticResource GameCardTemplate}"
+						ItemsSource="{x:Bind ViewModel.GamesList, Mode=OneWay}">
+						<ItemsRepeater.Layout>
+							<UniformGridLayout
+								MinColumnSpacing="12"
+								MinRowSpacing="16"
+								Orientation="Horizontal" />
+						</ItemsRepeater.Layout>
+					</ItemsRepeater>
+
+					<StackPanel
+						x:Name="LoadingSection"
+						Margin="0,48,0,0"
+						HorizontalAlignment="Center"
+						VerticalAlignment="Top"
+						Spacing="12"
+						Visibility="{x:Bind ViewModel.ShowLoadingScreen, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+						<ProgressRing
+							Width="48"
+							Height="48"
+							HorizontalAlignment="Center"
+							IsActive="True" />
+						<TextBlock
+							HorizontalAlignment="Center"
+							Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+							Style="{StaticResource BodyTextBlockStyle}"
+							Text="Loading your library..." />
+					</StackPanel>
+
+					<StackPanel
+						Margin="0,48,0,0"
+						HorizontalAlignment="Center"
+						VerticalAlignment="Top"
+						Spacing="8"
+						Visibility="{x:Bind ViewModel.ShowEmptyState, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}">
+						<FontIcon
+							FontSize="48"
+							HorizontalAlignment="Center"
+							Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+							Glyph="&#xE8FD;" />
+						<TextBlock
+							HorizontalAlignment="Center"
+							Style="{StaticResource SubtitleTextBlockStyle}"
+							Text="Your library is empty" />
+						<TextBlock
+							HorizontalAlignment="Center"
+							Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+							Style="{StaticResource BodyTextBlockStyle}"
+							Text="Games you own on Epic Games will show up here." />
+					</StackPanel>
+				</Grid>
+			</StackPanel>
+		</ScrollViewer>
+	</Grid>
 </Page>

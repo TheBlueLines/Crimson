@@ -1,63 +1,63 @@
 <UserControl
-    x:Class="Crimson.Views.CurrentDownloadControl"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d">
+	x:Class="Crimson.Views.CurrentDownloadControl"
+	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+	mc:Ignorable="d">
 
-    <Grid Height="90" VerticalAlignment="Center">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+	<Grid Height="90" VerticalAlignment="Center">
+		<Grid.RowDefinitions>
+			<RowDefinition Height="*" />
+		</Grid.RowDefinitions>
 
-        <StackPanel HorizontalAlignment="Left" VerticalAlignment="Center">
-            <TextBlock
-                x:Name="EmptyDownloadText"
-                Style="{ThemeResource BodyTextBlockStyle}"
-                Text="No Downloads in Queue"
-                Visibility="Visible" />
-        </StackPanel>
+		<StackPanel HorizontalAlignment="Left" VerticalAlignment="Center">
+			<TextBlock
+				x:Name="EmptyDownloadText"
+				Style="{ThemeResource BodyTextBlockStyle}"
+				Text="No Downloads in Queue"
+				Visibility="Visible" />
+		</StackPanel>
 
-        <Grid
-            x:Name="DownloadStatus"
-            Margin="5"
-            Visibility="Collapsed">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="25" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
+		<Grid
+			x:Name="DownloadStatus"
+			Margin="5"
+			Visibility="Collapsed">
+			<Grid.RowDefinitions>
+				<RowDefinition Height="Auto" />
+				<RowDefinition Height="25" />
+				<RowDefinition Height="Auto" />
+			</Grid.RowDefinitions>
 
-            <TextBlock
-                x:Name="GameName"
-                Grid.Row="0"
-                MaxWidth="260"
-                HorizontalAlignment="Left"
-                Style="{ThemeResource SubtitleTextBlockStyle}"
-                TextTrimming="WordEllipsis"
-                TextWrapping="NoWrap" />
-            <ProgressBar
-                x:Name="ProgressBar"
-                Grid.Row="1"
-                Height="10" />
+			<TextBlock
+				x:Name="GameName"
+				Grid.Row="0"
+				MaxWidth="260"
+				HorizontalAlignment="Left"
+				Style="{ThemeResource SubtitleTextBlockStyle}"
+				TextTrimming="WordEllipsis"
+				TextWrapping="NoWrap" />
+			<ProgressBar
+				x:Name="ProgressBar"
+				Grid.Row="1"
+				Height="10" />
 
-            <Grid Grid.Row="2">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+			<Grid Grid.Row="2">
+				<Grid.ColumnDefinitions>
+					<ColumnDefinition Width="*" />
+					<ColumnDefinition Width="Auto" />
+				</Grid.ColumnDefinitions>
 
-                <TextBlock
-                    x:Name="DownloadedSize"
-                    Grid.Column="0"
-                    Margin="0,0,10,0"
-                    FontSize="16" />
-                <TextBlock
-                    x:Name="DownloadSpeed"
-                    Grid.Column="1"
-                    FontSize="16" />
-            </Grid>
-        </Grid>
-    </Grid>
+				<TextBlock
+					x:Name="DownloadedSize"
+					Grid.Column="0"
+					Margin="0,0,10,0"
+					FontSize="16" />
+				<TextBlock
+					x:Name="DownloadSpeed"
+					Grid.Column="1"
+					FontSize="16" />
+			</Grid>
+		</Grid>
+	</Grid>
 </UserControl>

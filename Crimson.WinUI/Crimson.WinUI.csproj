@@ -1,123 +1,123 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<OutputType>WinExe</OutputType>
-        <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
-        <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+		<TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+		<TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
 		<RootNamespace>Crimson</RootNamespace>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
 		<ApplicationIcon>Assets\Crimson.ico</ApplicationIcon>
 		<Platforms>x64</Platforms>
 		<RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
-        <PublishProfile>win-x64.pubxml</PublishProfile>
+		<PublishProfile>win-x64.pubxml</PublishProfile>
 		<UseWinUI>true</UseWinUI>
 		<AssemblyName>Crimson</AssemblyName>
-        <EnableMsixTooling>true</EnableMsixTooling>
+		<EnableMsixTooling>true</EnableMsixTooling>
 		<UseRidGraph>true</UseRidGraph>
-        <Nullable>enable</Nullable>
-        <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+		<Nullable>enable</Nullable>
+		<DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
 
-        <!--
-          Packaging is opt-in so the default build stays unpackaged and F5 keeps working.
-          Store package: dotnet publish ... -p:EnablePackaging=true
-        -->
-        <EnablePackaging Condition="'$(EnablePackaging)' == ''">false</EnablePackaging>
-        <WindowsPackageType Condition="'$(EnablePackaging)' != 'true'">None</WindowsPackageType>
-        <WindowsPackageType Condition="'$(EnablePackaging)' == 'true'">MSIX</WindowsPackageType>
-    </PropertyGroup>
+		<!--
+		  Packaging is opt-in so the default build stays unpackaged and F5 keeps working.
+		  Store package: dotnet publish ... -p:EnablePackaging=true
+		-->
+		<EnablePackaging Condition="'$(EnablePackaging)' == ''">false</EnablePackaging>
+		<WindowsPackageType Condition="'$(EnablePackaging)' != 'true'">None</WindowsPackageType>
+		<WindowsPackageType Condition="'$(EnablePackaging)' == 'true'">MSIX</WindowsPackageType>
+	</PropertyGroup>
 
-    <!--
-      Store submissions are signed by Microsoft, so no certificate is needed here.
-      Set -p:EnableTestSigning=true to sign with a local cert for sideload testing.
-    -->
-    <PropertyGroup Condition="'$(EnablePackaging)' == 'true'">
-        <!-- Test-signed builds go elsewhere so a sideload package is never mistaken for the Store one. -->
-        <AppxPackageDir Condition="'$(EnableTestSigning)' != 'true'">$(MSBuildThisFileDirectory)..\artifacts\msix\</AppxPackageDir>
-        <AppxPackageDir Condition="'$(EnableTestSigning)' == 'true'">$(MSBuildThisFileDirectory)..\artifacts\msix-test\</AppxPackageDir>
-        <AppxBundle>Never</AppxBundle>
-        <AppxBundlePlatforms>x64</AppxBundlePlatforms>
-        <UapAppxPackageBuildMode Condition="'$(UapAppxPackageBuildMode)' == '' and '$(EnableTestSigning)' == 'true'">SideloadOnly</UapAppxPackageBuildMode>
-        <UapAppxPackageBuildMode Condition="'$(UapAppxPackageBuildMode)' == '' and '$(EnableTestSigning)' != 'true'">StoreUpload</UapAppxPackageBuildMode>
-        <GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
-        <!--
-          Symbol packages need mspdbcmf.exe from the VS C++ tools, which the .NET SDK
-          alone does not provide. Opt in with -p:AppxSymbolPackageEnabled=true on a machine
-          that has them; without it the build fails rather than warns.
-        -->
-        <AppxSymbolPackageEnabled Condition="'$(AppxSymbolPackageEnabled)' == ''">false</AppxSymbolPackageEnabled>
-        <AppxPackageSigningEnabled Condition="'$(EnableTestSigning)' != 'true'">false</AppxPackageSigningEnabled>
-        <AppxPackageSigningEnabled Condition="'$(EnableTestSigning)' == 'true'">true</AppxPackageSigningEnabled>
-        <!--
-          Pass the signing certificate per machine, e.g.
-            -p:EnableTestSigning=true -p:PackageCertificateThumbprint=<sha1>
-          The certificate subject must equal Identity/@Publisher exactly or signing fails.
-        -->
-        <PackageCertificateKeyFile Condition="'$(EnableTestSigning)' == 'true'"></PackageCertificateKeyFile>
-        <AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
-    </PropertyGroup>
+	<!--
+	  Store submissions are signed by Microsoft, so no certificate is needed here.
+	  Set -p:EnableTestSigning=true to sign with a local cert for sideload testing.
+	-->
+	<PropertyGroup Condition="'$(EnablePackaging)' == 'true'">
+		<!-- Test-signed builds go elsewhere so a sideload package is never mistaken for the Store one. -->
+		<AppxPackageDir Condition="'$(EnableTestSigning)' != 'true'">$(MSBuildThisFileDirectory)..\artifacts\msix\</AppxPackageDir>
+		<AppxPackageDir Condition="'$(EnableTestSigning)' == 'true'">$(MSBuildThisFileDirectory)..\artifacts\msix-test\</AppxPackageDir>
+		<AppxBundle>Never</AppxBundle>
+		<AppxBundlePlatforms>x64</AppxBundlePlatforms>
+		<UapAppxPackageBuildMode Condition="'$(UapAppxPackageBuildMode)' == '' and '$(EnableTestSigning)' == 'true'">SideloadOnly</UapAppxPackageBuildMode>
+		<UapAppxPackageBuildMode Condition="'$(UapAppxPackageBuildMode)' == '' and '$(EnableTestSigning)' != 'true'">StoreUpload</UapAppxPackageBuildMode>
+		<GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
+		<!--
+		  Symbol packages need mspdbcmf.exe from the VS C++ tools, which the .NET SDK
+		  alone does not provide. Opt in with -p:AppxSymbolPackageEnabled=true on a machine
+		  that has them; without it the build fails rather than warns.
+		-->
+		<AppxSymbolPackageEnabled Condition="'$(AppxSymbolPackageEnabled)' == ''">false</AppxSymbolPackageEnabled>
+		<AppxPackageSigningEnabled Condition="'$(EnableTestSigning)' != 'true'">false</AppxPackageSigningEnabled>
+		<AppxPackageSigningEnabled Condition="'$(EnableTestSigning)' == 'true'">true</AppxPackageSigningEnabled>
+		<!--
+		  Pass the signing certificate per machine, e.g.
+			-p:EnableTestSigning=true -p:PackageCertificateThumbprint=<sha1>
+		  The certificate subject must equal Identity/@Publisher exactly or signing fails.
+		-->
+		<PackageCertificateKeyFile Condition="'$(EnableTestSigning)' == 'true'"></PackageCertificateKeyFile>
+		<AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
+	</PropertyGroup>
 
-    <ItemGroup>
-        <ProjectReference Include="..\Crimson.Core\Crimson.Core.csproj" />
-    </ItemGroup>
-
-    <ItemGroup>
-        <Content Include="..\LICENSE.txt" Link="LICENSE.txt">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-            <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-        </Content>
-        <Content Include="Assets\Crimson.ico" />
-        <Content Include="Assets\SplashScreen.scale-200.png" />
-        <Content Include="Assets\LockScreenLogo.scale-200.png" />
-        <Content Include="Assets\Square150x150Logo.scale-200.png" />
-        <Content Include="Assets\Square44x44Logo.scale-200.png" />
-        <Content Include="Assets\Square44x44Logo.targetsize-16_altform-unplated.png" />
-        <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
-        <Content Include="Assets\Square44x44Logo.targetsize-32_altform-unplated.png" />
-        <Content Include="Assets\Square44x44Logo.targetsize-48_altform-unplated.png" />
-        <Content Include="Assets\Square44x44Logo.targetsize-256_altform-unplated.png" />
-        <Content Include="Assets\StoreLogo.png" />
-        <Content Include="Assets\Wide310x150Logo.scale-200.png" />
-        <Content Include="Images\WindowIcon.png" />
-    </ItemGroup>
-    
 	<ItemGroup>
-        <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-        <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
-        <PackageReference Include="CommunityToolkit.WinUI.Converters" Version="8.2.251219" />
-        <PackageReference Include="Google.Protobuf" Version="3.29.2" />
-        <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
-        <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
-        <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.9.0" />
-        <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
-        <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.8249" />
-        <PackageReference Include="Serilog" Version="4.4.0" />
-        <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
-        <PackageReference Include="Serilog.Formatting.Compact" Version="3.0.0" />
-        <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
-        <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.11" />
+		<ProjectReference Include="..\Crimson.Core\Crimson.Core.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Content Include="..\LICENSE.txt" Link="LICENSE.txt">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="Assets\Crimson.ico" />
+		<Content Include="Assets\SplashScreen.scale-200.png" />
+		<Content Include="Assets\LockScreenLogo.scale-200.png" />
+		<Content Include="Assets\Square150x150Logo.scale-200.png" />
+		<Content Include="Assets\Square44x44Logo.scale-200.png" />
+		<Content Include="Assets\Square44x44Logo.targetsize-16_altform-unplated.png" />
+		<Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
+		<Content Include="Assets\Square44x44Logo.targetsize-32_altform-unplated.png" />
+		<Content Include="Assets\Square44x44Logo.targetsize-48_altform-unplated.png" />
+		<Content Include="Assets\Square44x44Logo.targetsize-256_altform-unplated.png" />
+		<Content Include="Assets\StoreLogo.png" />
+		<Content Include="Assets\Wide310x150Logo.scale-200.png" />
+		<Content Include="Images\WindowIcon.png" />
+	</ItemGroup>
+	
+	<ItemGroup>
+		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+		<PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
+		<PackageReference Include="CommunityToolkit.WinUI.Converters" Version="8.2.251219" />
+		<PackageReference Include="Google.Protobuf" Version="3.29.2" />
+		<PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
+		<PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+		<PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.9.0" />
+		<PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
+		<PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.8249" />
+		<PackageReference Include="Serilog" Version="4.4.0" />
+		<PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
+		<PackageReference Include="Serilog.Formatting.Compact" Version="3.0.0" />
+		<PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+		<PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.11" />
 		<Manifest Include="$(ApplicationManifest)" />
 	</ItemGroup>
 
 
-    <!-- 
-    Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
-    Tools extension to be activated for this project even if the Windows App SDK Nuget
-    package has not yet been restored.
+	<!-- 
+	Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
+	Tools extension to be activated for this project even if the Windows App SDK Nuget
+	package has not yet been restored.
   -->
-    <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
-        <ProjectCapability Include="Msix" />
-    </ItemGroup>
-    <ItemGroup>
-      <Page Update="Controls\AppInstallDialog.xaml">
-        <Generator>MSBuild:Compile</Generator>
-      </Page>
-    </ItemGroup>
+	<ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+		<ProjectCapability Include="Msix" />
+	</ItemGroup>
+	<ItemGroup>
+	  <Page Update="Controls\AppInstallDialog.xaml">
+		<Generator>MSBuild:Compile</Generator>
+	  </Page>
+	</ItemGroup>
 
-    <!-- 
-    Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution 
-    Explorer "Package and Publish" context menu entry to be enabled for this project even if 
-    the Windows App SDK Nuget package has not yet been restored.
+	<!-- 
+	Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution 
+	Explorer "Package and Publish" context menu entry to be enabled for this project even if 
+	the Windows App SDK Nuget package has not yet been restored.
   -->
-    <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
-        <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
-    </PropertyGroup>
+	<PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+		<HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
+	</PropertyGroup>
 </Project>
