@@ -339,10 +339,6 @@ public sealed class AppInstallDialogViewModelTests : IDisposable
 		public Task<IEnumerable<Asset>> FetchGameAssets(string platform = "Windows", string label = "Live") =>
 			throw new NotSupportedException();
 
-		public Task<IReadOnlyList<StoreSearchResult>> SearchStore(
-			string query,
-			CancellationToken cancellationToken = default) => throw new NotSupportedException();
-
 		public Task DownloadFileAsync(string url, string destinationPath) =>
 			throw new NotSupportedException();
 

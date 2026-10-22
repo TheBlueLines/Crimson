@@ -31,6 +31,12 @@ public static class EpicEndpointPolicy
 		"store.epicgames.com"
 	};
 
+	private static readonly HashSet<string> StoreApiHosts = new(StringComparer.OrdinalIgnoreCase)
+	{
+		"launcher.store.epicgames.com",
+		"store-site-backend-static-ipv4.ak.epicgames.com"
+	};
+
 	private static readonly string[] ContentHostSuffixes =
 	[
 		".epicgames.com",
@@ -47,12 +53,16 @@ public static class EpicEndpointPolicy
 
 	public static Uri RequireStoreUri(string value) => Require(value, IsAllowedStoreUri, "Epic Store");
 
+	public static Uri RequireStoreApiUri(string value) => Require(value, IsAllowedStoreApiUri, "Epic Store API");
+
 	public static bool IsAllowedLoginOrigin(string? value) =>
 		TryGetHttpsUri(value, out var uri) && LoginHosts.Contains(uri.Host);
 
 	public static bool IsAllowedApiUri(Uri uri) => IsHttps(uri) && ApiHosts.Contains(uri.Host);
 
 	public static bool IsAllowedStoreUri(Uri uri) => IsHttps(uri) && StoreHosts.Contains(uri.Host);
+
+	public static bool IsAllowedStoreApiUri(Uri uri) => IsHttps(uri) && StoreApiHosts.Contains(uri.Host);
 
 	public static bool IsAllowedContentUri(Uri uri) => IsHttps(uri) &&
 		ContentHostSuffixes.Any(suffix => uri.Host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));

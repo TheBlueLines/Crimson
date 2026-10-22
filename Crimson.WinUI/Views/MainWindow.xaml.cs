@@ -46,7 +46,7 @@ public sealed partial class MainWindow : Window
 	private readonly AuthManager _authManager;
 	private readonly InstallManager _installManager;
 	private readonly LibraryManager _libraryManager;
-	private readonly IStoreRepository _storeRepository;
+	private readonly IStoreCatalog _storeCatalog;
 
 	private List<Game> _libraryCache = new();
 	private CancellationTokenSource? _storeSearchCancellation;
@@ -80,7 +80,7 @@ public sealed partial class MainWindow : Window
 		public required string Subtitle { get; init; }
 		public string? AppName { get; init; }
 		public string? StoreQuery { get; init; }
-		public string? StoreProductSlug { get; init; }
+		public StoreSearchResult? StoreResult { get; init; }
 		public ImageSource? Thumbnail { get; init; }
 		public string? IconGlyph { get; init; }
 		public bool IsLoading { get; init; }
@@ -108,7 +108,7 @@ public sealed partial class MainWindow : Window
 		_authManager = App.GetService<AuthManager>();
 		_installManager = App.GetService<InstallManager>();
 		_libraryManager = App.GetService<LibraryManager>();
-		_storeRepository = App.GetService<IStoreRepository>();
+		_storeCatalog = App.GetService<IStoreCatalog>();
 		_log = App.GetService<ILogger>();
 
 		_libraryManager.LibraryUpdated += LibraryUpdatedHandler;
@@ -144,7 +144,7 @@ public sealed partial class MainWindow : Window
 			NavControl.DisplayMode is NavigationViewDisplayMode.Compact or NavigationViewDisplayMode.Minimal)
 			return;
 
-		if (ContentFrame.Content is StorePage storePage && storePage.TryGoBack())
+		if (ContentFrame.Content is StoreWebPage storeWebPage && storeWebPage.TryGoBack())
 			return;
 
 		if (ContentFrame.CanGoBack)
@@ -205,13 +205,21 @@ public sealed partial class MainWindow : Window
 		try
 		{
 			await Task.Delay(TimeSpan.FromMilliseconds(400), cancellationSource.Token);
-			var results = await _storeRepository.SearchStore(query, cancellationSource.Token);
+			var page = await _storeCatalog.SearchAsync(
+				new StoreQuery { Keywords = query, Count = 5 },
+				cancellationSource.Token);
 			if (ReferenceEquals(_storeSearchCancellation, cancellationSource) &&
 				string.Equals(NormalizeSearchQuery(GlobalSearchBox.Text), query, StringComparison.Ordinal))
-				UpdateSearchSuggestions(query, results);
+				UpdateSearchSuggestions(query, page.Results);
 		}
 		catch (OperationCanceledException) when (cancellationSource.IsCancellationRequested)
 		{
+		}
+		catch (StoreCatalogException)
+		{
+			// Library matches and the full-search entry still work without store suggestions.
+			if (ReferenceEquals(_storeSearchCancellation, cancellationSource))
+				UpdateSearchSuggestions(query, []);
 		}
 		finally
 		{
@@ -241,10 +249,10 @@ public sealed partial class MainWindow : Window
 			return;
 		}
 
-		if (suggestion.StoreProductSlug is not null)
-			NavigateToStore(StorePage.CreateProductUri(suggestion.StoreProductSlug));
+		if (suggestion.StoreResult is not null)
+			NavigateToStoreProduct(suggestion.StoreResult.ToProductRequest());
 		else
-			NavigateToStore(StorePage.CreateSearchUri(suggestion.StoreQuery!));
+			NavigateToStoreSearch(suggestion.StoreQuery!);
 	}
 
 	private void UpdateSearchSuggestions(
@@ -265,7 +273,7 @@ public sealed partial class MainWindow : Window
 			{
 				DisplayText = result.Title,
 				Subtitle = "Epic Games Store",
-				StoreProductSlug = result.ProductSlug,
+				StoreResult = result,
 				Thumbnail = CreateSearchThumbnail(result.ImageUrl)
 			}));
 		}
@@ -338,17 +346,24 @@ public sealed partial class MainWindow : Window
 		IconGlyph = "\uE719"
 	};
 
-	private void NavigateToStore(Uri uri)
+	private void NavigateToStoreSearch(string query)
 	{
 		NavControl.SelectedItem = StoreNavItem;
 		if (ContentFrame.Content is StorePage storePage)
 		{
-			storePage.Open(uri);
+			storePage.ShowSearch(query);
 			return;
 		}
 
 		_currentGameAppName = null;
-		ContentFrame.Navigate(typeof(StorePage), uri, new EntranceNavigationTransitionInfo());
+		ContentFrame.Navigate(typeof(StorePage), query, new EntranceNavigationTransitionInfo());
+	}
+
+	private void NavigateToStoreProduct(StoreProductRequest request)
+	{
+		NavControl.SelectedItem = StoreNavItem;
+		_currentGameAppName = null;
+		ContentFrame.Navigate(typeof(StoreProductPage), request, new EntranceNavigationTransitionInfo());
 	}
 
 	private void ClearGlobalSearch()

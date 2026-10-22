@@ -133,7 +133,9 @@ namespace Crimson
 					provider.GetRequiredService<AuthManager>(),
 					provider.GetRequiredService<ILogger>(),
 					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicApi"),
-					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicContent"),
+					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicContent")));
+				services.AddSingleton<IStoreCatalog>(provider => new EpicStoreCatalog(
+					provider.GetRequiredService<ILogger>(),
 					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicStore")));
 				services.AddSingleton<LibraryManager>();
 				services.AddSingleton<IGameShortcutManager>(provider => new GameShortcutManager(
@@ -149,6 +151,8 @@ namespace Crimson
 				services.AddTransient<DownloadsViewModel>();
 				services.AddTransient<LibraryViewModel>();
 				services.AddTransient<GameInfoViewModel>();
+				services.AddTransient<StoreViewModel>();
+				services.AddTransient<StoreProductViewModel>();
 				services.AddTransient<AppInstallDialogViewModel>();
 			}).
 			Build();

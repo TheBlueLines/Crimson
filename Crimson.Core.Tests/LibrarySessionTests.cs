@@ -105,7 +105,6 @@ public sealed class LibrarySessionTests : IDisposable
 		}
 
 		public static Metadata Metadata(string app) => new() { Id = app, Title = app, KeyImages = [] };
-		public Task<IReadOnlyList<StoreSearchResult>> SearchStore(string query, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 		public Task<byte[]> GetGameManifest(GetManifestUrlData data, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 		public Task DownloadFileAsync(string url, string destinationPath) => throw new NotSupportedException();
 		public Task<string> GetGameToken() => throw new NotSupportedException();
