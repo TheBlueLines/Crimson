@@ -166,6 +166,279 @@ public sealed class AppInstallDialogViewModelTests : IDisposable
 		Assert.Equal(InstallState.NotInstalled, uninstall.LocalAppState!.InstallStatus);
 	}
 
+	[Fact]
+	public void ContentDiffIgnoresDuplicatesAndRetainsExistingItems()
+	{
+		var (added, removed) = InstalledContentSelection.Diff(["keep", "remove", "remove"], ["keep", "add", "add"]);
+		Assert.Equal(["add"], added);
+		Assert.Equal(["remove"], removed);
+	}
+
+	[Fact]
+	public void TagFilteringKeepsBaseAndFilesSharedBySelectedTags()
+	{
+		var manifest = Manifest.ReadAll(CreateContentManifest(("base", []), ("shared", ["en", "fr"]), ("optional", ["hd"]), ("required", [""])));
+		Assert.Equal(["base", "shared", "required"], InstalledContentSelection.Filter(manifest.FileManifestList.Elements, ["fr"]).Select(file => file.Filename));
+		Assert.Equal(4, InstalledContentSelection.Filter(manifest.FileManifestList.Elements, null).Count);
+		Assert.Equal(["base", "required"], InstalledContentSelection.Filter(manifest.FileManifestList.Elements, []).Select(file => file.Filename));
+	}
+
+	[Theory]
+	[InlineData(InstallState.Playing)]
+	[InlineData(InstallState.Updating)]
+	[InlineData(InstallState.Installing)]
+	[InlineData(InstallState.Broken)]
+	[InlineData(InstallState.InstallationPaused)]
+	[InlineData(InstallState.NotInstalled)]
+	public void ContentChangesRequireInstalledIdleGame(InstallState status)
+	{
+		Assert.False(InstalledContentSelection.CanModify(new LocalAppState { InstallPath = _root, InstallStatus = status }, false));
+		Assert.False(InstalledContentSelection.CanModify(new LocalAppState { InstallPath = _root, InstallStatus = InstallState.Installed }, true));
+		Assert.False(InstalledContentSelection.CanModify(null, false));
+		Assert.False(InstalledContentSelection.CanModify(new LocalAppState { InstallStatus = InstallState.Installed }, false));
+	}
+
+	[Fact]
+	public async Task ManageDialogUsesInstalledFolderAndPreselectsInstalledContent()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		game.LocalAppState!.SelectedInstallTags = ["en"];
+		storage.AddToLocalAppState(game.AppName, game.LocalAppState);
+		var viewModel = new AppInstallDialogViewModel(_logger, installer, library, storage, new ImmediateUiDispatcher());
+		await viewModel.InitializeAsync(game);
+
+		Assert.True(viewModel.IsManageContent);
+		Assert.Equal(game.LocalAppState.InstallPath, viewModel.InstallLocation);
+		Assert.Equal("Installed", viewModel.BaseGameSize);
+		Assert.Equal("Apply", viewModel.ConfirmButtonText);
+		Assert.True(viewModel.AvailableInstallTags.Single(tag => tag.AppName == "en").IsSelected);
+		Assert.False(viewModel.AvailableInstallTags.Single(tag => tag.AppName == "hd").IsSelected);
+		Assert.True(viewModel.AvailableDlcs.Single().IsSelected);
+		Assert.Equal("0 B", viewModel.TotalDownloadSize);
+	}
+
+	[Fact]
+	public async Task ContentChangeRemovesOnlyDeselectedFilesAndPersistsAcrossReloadRepairAndUpdate()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		var location = game.LocalAppState!.InstallPath;
+		File.WriteAllText(Path.Combine(location, "notes.txt"), "keep user data");
+		var completed = WaitForAction(installer, game.AppName);
+		Assert.True(installer.TryQueueContentChange(game.AppName, ["en"], ["dlc"]));
+		Assert.False(installer.CanManageContent(game.AppName));
+		Assert.False(installer.TryQueueContentChange(game.AppName, [], []));
+		await completed;
+
+		Assert.False(File.Exists(Path.Combine(location, "hd.bin")));
+		Assert.True(File.Exists(Path.Combine(location, "base.exe")));
+		Assert.True(File.Exists(Path.Combine(location, "shared.bin")));
+		Assert.True(File.Exists(Path.Combine(location, "notes.txt")));
+		Assert.Equal(["en"], new Storage(_logger, _root, Path.Combine(_root, "games")).LocalAppStateDictionary[game.AppName].SelectedInstallTags);
+		foreach (var action in new[] { ActionType.Repair, ActionType.Update })
+		{
+			completed = WaitForAction(installer, game.AppName);
+			installer.AddToQueue(new InstallItem(game.AppName, action, location));
+			await completed;
+			Assert.False(File.Exists(Path.Combine(location, "hd.bin")));
+			Assert.Equal(InstallState.Installed, game.LocalAppState.InstallStatus);
+		}
+	}
+
+	[Fact]
+	public async Task DlcRemovalPreservesBaseSharedFilesAndInstallDirectory()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		var location = game.LocalAppState!.InstallPath;
+		var completed = WaitForAction(installer, "dlc");
+		Assert.True(installer.TryQueueContentChange(game.AppName, ["en", "hd"], []));
+		await completed;
+
+		Assert.True(Directory.Exists(location));
+		Assert.True(File.Exists(Path.Combine(location, "base.exe")));
+		Assert.True(File.Exists(Path.Combine(location, "shared.bin")));
+		Assert.False(File.Exists(Path.Combine(location, "dlc.bin")));
+		Assert.Equal(InstallState.Installed, game.LocalAppState.InstallStatus);
+		Assert.Equal(InstallState.NotInstalled, storage.LocalAppStateDictionary["dlc"].InstallStatus);
+		Assert.True(installer.CanManageContent(game.AppName));
+	}
+
+	[Fact]
+	public async Task NewlySelectedTagAndDlcAreInstalledThroughQueueInExistingFolder()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		var location = game.LocalAppState!.InstallPath;
+		game.LocalAppState.SelectedInstallTags = ["en"];
+		File.Delete(Path.Combine(location, "hd.bin"));
+		storage.LocalAppStateDictionary["dlc"].InstallStatus = InstallState.NotInstalled;
+		File.Delete(Path.Combine(location, "dlc.bin"));
+		var completed = WaitForAction(installer, "dlc");
+		Assert.True(installer.TryQueueContentChange(game.AppName, ["en", "hd"], ["dlc"]));
+		await completed;
+
+		Assert.True(File.Exists(Path.Combine(location, "hd.bin")));
+		Assert.True(File.Exists(Path.Combine(location, "dlc.bin")));
+		Assert.Equal(location, storage.LocalAppStateDictionary["dlc"].InstallPath);
+		Assert.Equal(InstallState.Installed, storage.LocalAppStateDictionary["dlc"].InstallStatus);
+		Assert.Equal(["en", "hd"], game.LocalAppState.SelectedInstallTags);
+	}
+
+	[Fact]
+	public async Task UnknownTagsFailWithoutRemovingFilesOrChangingSelection()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		var completed = WaitForAction(installer, game.AppName, ActionStatus.Failed);
+		Assert.True(installer.TryQueueContentChange(game.AppName, ["unknown"], []));
+		await completed;
+		Assert.Null(game.LocalAppState!.SelectedInstallTags);
+		Assert.True(File.Exists(Path.Combine(game.LocalAppState.InstallPath, "hd.bin")));
+		Assert.Equal(InstallState.Installed, storage.LocalAppStateDictionary["dlc"].InstallStatus);
+		Assert.Empty(installer.GetQueueItemNames());
+	}
+
+	[Fact]
+	public async Task UnsafeManifestPathFailsBeforeAnyRemoval()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		await storage.CacheManifestBytes(game.AppName, "1.0", CreateContentManifest(("base.exe", []), ("hd.bin", ["hd"]), ("../escape.bin", ["hd"])));
+		var completed = WaitForAction(installer, game.AppName, ActionStatus.Failed);
+		Assert.True(installer.TryQueueContentChange(game.AppName, [], ["dlc"]));
+		await completed;
+		Assert.True(File.Exists(Path.Combine(game.LocalAppState!.InstallPath, "hd.bin")));
+		Assert.Null(game.LocalAppState.SelectedInstallTags);
+	}
+
+	[Fact]
+	public async Task DlcActionInProgressDisablesBaseContentManagement()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		var completed = WaitForAction(installer, "dlc");
+		installer.AddToQueue(new InstallItem("dlc", ActionType.Repair, game.LocalAppState!.InstallPath));
+		Assert.False(installer.CanManageContent(game.AppName));
+		Assert.False(installer.TryQueueContentChange(game.AppName, [], []));
+		await completed;
+	}
+
+	[Fact]
+	public async Task ManageDialogRecalculatesDownloadAndSignedDiskDeltaWhenSelectionChanges()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		var manifest = Encoding.UTF8.GetString(CreateJsonManifest(100, 10))
+			.Replace("\"FileHash\":", "\"InstallTags\":[\"hd\"],\"FileHash\":");
+		await storage.CacheManifestBytes(game.AppName, "1.0", Encoding.UTF8.GetBytes(manifest));
+		var vm = new AppInstallDialogViewModel(_logger, installer, library, storage, new ImmediateUiDispatcher());
+		await vm.InitializeAsync(game);
+		vm.AvailableInstallTags.Single().IsSelected = false;
+		Assert.Equal("0 B", vm.TotalDownloadSize);
+		Assert.Equal("-10 B", vm.TotalInstallSize);
+
+		game.LocalAppState!.SelectedInstallTags = [];
+		await vm.InitializeAsync(game);
+		vm.AvailableInstallTags.Single().IsSelected = true;
+		Assert.Equal("100 B", vm.TotalDownloadSize);
+		Assert.Equal("10 B", vm.TotalInstallSize);
+	}
+
+	[Fact]
+	public async Task MissingInstalledManifestCannotUseDifferentVersionsRemovalList()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		game.LocalAppState!.Version = "unavailable-old-version";
+		var completed = WaitForAction(installer, game.AppName, ActionStatus.Failed);
+		Assert.True(installer.TryQueueContentChange(game.AppName, [], []));
+		await completed;
+		Assert.True(File.Exists(Path.Combine(game.LocalAppState.InstallPath, "hd.bin")));
+		Assert.Null(game.LocalAppState.SelectedInstallTags);
+		Assert.Equal(InstallState.Installed, storage.LocalAppStateDictionary["dlc"].InstallStatus);
+	}
+
+	[Fact]
+	public async Task ContentChangeUsesInstalledVersionAndPreservesPendingUpdate()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		game.AssetInfos.Windows.BuildVersion = "2.0";
+		game.LocalAppState!.InstallStatus = InstallState.NeedUpdate;
+		var completed = WaitForAction(installer, game.AppName);
+		Assert.True(installer.CanManageContent(game.AppName));
+		Assert.True(installer.TryQueueContentChange(game.AppName, ["en"], ["dlc"]));
+		await completed;
+		Assert.Equal(InstallState.NeedUpdate, game.LocalAppState.InstallStatus);
+		Assert.Equal("1.0", game.LocalAppState.Version);
+		Assert.Equal(["en"], game.LocalAppState.SelectedInstallTags);
+		Assert.False(File.Exists(Path.Combine(game.LocalAppState.InstallPath, "hd.bin")));
+	}
+
+	[Fact]
+	public async Task UnknownDlcCannotEnterTheContentQueue()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		Assert.Throws<ArgumentException>(() => installer.TryQueueContentChange(game.AppName, [], ["another-games-dlc"]));
+		Assert.Null(installer.CurrentInstall);
+		Assert.Empty(installer.GetQueueItemNames());
+	}
+
+	private async Task<(Storage Storage, LibraryManager Library, InstallManager Installer, Game Game)> CreateContentInstallation()
+	{
+		var repository = new ControlledManifestRepository();
+		var storage = new Storage(_logger, _root, Path.Combine(_root, "games"));
+		var location = Path.Combine(_root, "existing-game");
+		Directory.CreateDirectory(location);
+		var game = CreateGame("game", "Game", "image");
+		var dlc = CreateGame("dlc", "DLC", "image");
+		dlc.Metadata.MainGameItem = new MainGameItem { Id = game.Metadata.Id };
+		var baseManifest = CreateContentManifest(("base.exe", []), ("en.bin", ["en"]), ("hd.bin", ["hd"]), ("shared.bin", []));
+		var dlcManifest = CreateContentManifest(("dlc.bin", []), ("shared.bin", []));
+		foreach (var (app, manifest) in new[] { (game, baseManifest), (dlc, dlcManifest) })
+		{
+			app.BaseUrls = [];
+			app.LocalAppState = new LocalAppState { AppName = app.AppName, InstallPath = location, Version = "1.0", CachedManifestVersion = "1.0", InstallStatus = InstallState.Installed };
+			storage.SaveMetaData(app);
+			storage.AddToLocalAppState(app.AppName, app.LocalAppState);
+			await storage.CacheManifestBytes(app.AppName, "1.0", manifest);
+			repository.Complete(app.AppName, manifest);
+			foreach (var file in Manifest.ReadAll(manifest).FileManifestList.Elements)
+				File.WriteAllBytes(Path.Combine(location, file.Filename), []);
+		}
+		var library = CreateLibrary(storage, repository);
+		var installer = new InstallManager(_logger, library, repository, storage,
+			new DownloadManager(_logger, new HttpClient()), new UnusedShortcutManager(), new AllowInstallPermissionChecker());
+		return (storage, library, installer, game);
+	}
+
+	private static async Task WaitForAction(InstallManager installer, string appName, ActionStatus expected = ActionStatus.Success)
+	{
+		var completion = new TaskCompletionSource<InstallItem>(TaskCreationOptions.RunContinuationsAsynchronously);
+		void OnStatus(InstallItem item)
+		{
+			if (item.AppName == appName && item.Status is ActionStatus.Success or ActionStatus.Failed or ActionStatus.Cancelled)
+				completion.TrySetResult(item);
+		}
+		installer.InstallationStatusChanged += OnStatus;
+		try
+		{
+			var item = await completion.Task.WaitAsync(TimeSpan.FromSeconds(15));
+			Assert.True(item.Status == expected, item.StatusMessage);
+		}
+		finally
+		{
+			installer.InstallationStatusChanged -= OnStatus;
+		}
+	}
+
+	private static byte[] CreateContentManifest(params (string Filename, string[] Tags)[] files) =>
+		Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(new
+		{
+			BuildVersionString = "1.0",
+			LaunchExeString = "base.exe",
+			FileManifestList = files.Select(file => new
+			{
+				file.Filename,
+				InstallTags = file.Tags,
+				FileHash = EncodeDecimalBytes(System.Security.Cryptography.SHA1.HashData([])),
+				FileChunkParts = Array.Empty<object>()
+			}),
+			ChunkHashList = new { }, ChunkShaList = new { }, DataGroupList = new { }, ChunkFilesizeList = new { }
+		}));
+
 	public void Dispose()
 	{
 		if (Directory.Exists(_root))

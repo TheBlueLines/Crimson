@@ -16,7 +16,7 @@ using Serilog;
 
 namespace Crimson.Core;
 
-public class InstallManager
+public partial class InstallManager
 {
 	public event Action<InstallItem> InstallationStatusChanged;
 	public event Action<InstallItem> InstallProgressUpdate;
@@ -108,6 +108,14 @@ public class InstallManager
 			return;
 		}
 
+		if (item.Action == ActionType.ModifyContent)
+		{
+			if (!CanManageContent(item.AppName))
+				return;
+			item.ContentOwnerAppName = item.AppName;
+			item.Location = gameData.LocalAppState!.InstallPath;
+		}
+
 		if (item.Action != ActionType.Install && item.Action != ActionType.Import &&
 			(gameData.LocalAppState == null || gameData.LocalAppState?.InstallStatus == InstallState.NotInstalled))
 		{
@@ -123,6 +131,7 @@ public class InstallManager
 
 		_logger.Information("AddToQueue: Adding new Install to queue {Name} Action {Action}", item.AppName, item.Action);
 		_installQueue.Add(item);
+		InstallationStatusChanged?.Invoke(item);
 		if (CurrentInstall == null)
 			ProcessNext();
 	}
@@ -211,7 +220,11 @@ public class InstallManager
 			_logger.Information("ProcessNext: Processing {Action} of {AppName}. Game Location {Location} ",
 				currentInstall.Action, currentInstall.AppName, currentInstall.Location);
 
-			var manifestData = await GetManifestDataWithCaching(currentInstall.AppName);
+			ValidateContentAction(currentInstall);
+			var manifestData = currentInstall.Action == ActionType.ModifyContent ||
+				(currentInstall.Action == ActionType.Uninstall && currentInstall.ContentOwnerAppName is not null)
+				? await GetInstalledManifestBytes(currentInstall.AppName)
+				: await GetManifestDataWithCaching(currentInstall.AppName);
 			var gameData = _libraryManager.GetGameInfo(currentInstall.AppName);
 
 			_logger.Information("ProcessNext: Parsing game manifest");
@@ -256,8 +269,14 @@ public class InstallManager
 		Manifest data,
 		List<BigInteger> downloadedChunks)
 	{
+		if (install.Action is ActionType.Install or ActionType.Update or ActionType.Repair)
+			data = SelectManifest(data, install.SelectedInstallTags ?? gameData.LocalAppState?.SelectedInstallTags);
+
 		switch (install.Action)
 		{
+			case ActionType.ModifyContent:
+				await PrepareContentTasks(install, gameData, data);
+				break;
 			case ActionType.Install:
 				await _downloadManager.InitializeMirrors(gameData.BaseUrls);
 				GetChunksToDownload(data, downloadedChunks);
@@ -269,6 +288,8 @@ public class InstallManager
 				await PrepareRepairTasks(gameData, data);
 				break;
 			case ActionType.Uninstall:
+				if (install.ContentOwnerAppName is not null)
+					data = await ExcludeSharedContent(install, data);
 				PrepareUninstallTasks(install, data);
 				break;
 			case ActionType.Import:
@@ -293,7 +314,8 @@ public class InstallManager
 				continue;
 			}
 
-			install.TotalWriteSizeMb += file.FileSize / 1024.0 / 1024.0;
+			install.TotalWriteSizeBytes += file.FileSize;
+			install.TotalWriteSizeMb = install.TotalWriteSizeBytes / 1024.0 / 1024.0;
 			_ioQueue.Add(new IoTask
 			{
 				DestinationFilePath = filePath,
@@ -436,6 +458,7 @@ public class InstallManager
 				try
 				{
 					_pauseEvent.Wait(_cancellationTokenSource.Token);
+					ValidateContentAction(install);
 
 					switch (ioTask.TaskType)
 					{
@@ -679,7 +702,8 @@ public class InstallManager
 		localAppState.Executable = null;
 		SaveLocalAppState(game, localAppState);
 		TryRemoveShortcuts(game);
-		DeleteInstallDirectory(install, install.Location);
+		if (install.ContentOwnerAppName is null)
+			DeleteInstallDirectory(install, install.Location);
 		_logger.Information(
 			"UpdateInstalledGameStatus: Uninstall complete for {AppName}",
 			install.AppName);
@@ -770,10 +794,19 @@ public class InstallManager
 		Game game,
 		LocalAppState localAppState)
 	{
-		var manifest = await GetManifestAsync(install, game);
+		var manifest = install.Action == ActionType.ModifyContent
+			? Manifest.ReadAll(await GetInstalledManifestBytes(install.AppName))
+			: await GetManifestAsync(install, game);
+		manifest = SelectManifest(manifest, install.SelectedInstallTags ?? localAppState.SelectedInstallTags);
 		var invalidFiles = await VerifyFiles(install.Location, manifest.FileManifestList.Elements);
+		var previousStatus = localAppState.InstallStatus;
 		SetVerificationStatus(install, localAppState, invalidFiles.Count);
-		ApplyManifestState(install, game, localAppState, manifest);
+		if (install.Action == ActionType.ModifyContent && invalidFiles.Count == 0)
+			localAppState.InstallStatus = previousStatus;
+		if (invalidFiles.Count == 0 && install.SelectedInstallTags is not null)
+			localAppState.SelectedInstallTags = [.. install.SelectedInstallTags];
+		if (install.Action != ActionType.ModifyContent)
+			ApplyManifestState(install, game, localAppState, manifest);
 		SaveLocalAppState(game, localAppState);
 		EnsureVerificationSucceeded(install, invalidFiles.Count);
 	}
@@ -876,7 +909,7 @@ public class InstallManager
 
 	private void CleanupTemporaryDirectory(InstallItem install)
 	{
-		if (install.Action is not ActionType.Install and not ActionType.Update and not ActionType.Repair)
+		if (install.Action is not ActionType.Install and not ActionType.Update and not ActionType.Repair and not ActionType.ModifyContent)
 			return;
 
 		var tempDirectory = Path.Combine(install.Location, ".Crimson");
@@ -896,6 +929,7 @@ public class InstallManager
 		_logger.Error(exception, "UpdateInstalledGameStatus failed");
 		if (CurrentInstall is not null)
 		{
+			CancelRemainingContentActions(CurrentInstall);
 			CurrentInstall.Status = ActionStatus.Failed;
 			CurrentInstall.StatusMessage = string.IsNullOrWhiteSpace(exception.Message)
 				? "Installation failed"
@@ -1108,7 +1142,7 @@ public class InstallManager
 			return;
 		}
 
-		var oldManifest = Manifest.ReadAll(oldManifestBytes);
+		var oldManifest = SelectManifest(Manifest.ReadAll(oldManifestBytes), localAppState.SelectedInstallTags);
 		_logger.Information("PrepareUpdateTasks: Comparing manifests for {AppName}", CurrentInstall.AppName);
 
 		// Build lookup of old file hashes by filename
@@ -1296,7 +1330,9 @@ public class InstallManager
 			CurrentInstall.WriteSpeedMiB = _installStopWatch.IsRunning && _installStopWatch.Elapsed.TotalSeconds > 0
 				? Math.Round(CurrentInstall.WrittenSizeMiB / _installStopWatch.Elapsed.TotalSeconds, 2)
 				: 0;
-			CurrentInstall.ProgressPercentage = Convert.ToInt32((CurrentInstall.WrittenSizeMiB / CurrentInstall.TotalWriteSizeMb) * 100);
+			CurrentInstall.ProgressPercentage = CurrentInstall.TotalWriteSizeMb > 0
+				? Convert.ToInt32((CurrentInstall.WrittenSizeMiB / CurrentInstall.TotalWriteSizeMb) * 100)
+				: 100;
 			UpdateProgressIfNeeded();
 		}
 	}
@@ -1324,6 +1360,7 @@ public class InstallManager
 			return;
 		}
 
+		CancelRemainingContentActions(CurrentInstall);
 		if (!_userCancelled)
 		{
 			// propage cancelling status if not done already
@@ -1339,7 +1376,6 @@ public class InstallManager
 				: errorMessage;
 			CurrentInstall.Status = ActionStatus.Failed;
 			_installHistory.Add(CurrentInstall);
-			InstallationStatusChanged?.Invoke(CurrentInstall);
 			_logger.Error("Installation failed: {ErrorMessage}", errorMessage);
 		}
 		else
@@ -1364,9 +1400,9 @@ public class InstallManager
 
 			CurrentInstall.Status = ActionStatus.Cancelled;
 			_installHistory.Add(CurrentInstall);
-			InstallationStatusChanged?.Invoke(CurrentInstall);
 			_logger.Information("Installation cancelled");
 		}
+		var stoppedInstall = CurrentInstall;
 		CurrentInstall = null;
 
 		var state = new InstallManagerState
@@ -1378,6 +1414,7 @@ public class InstallManager
 
 		var json = JsonSerializer.Serialize(state, _jsonSerializerOptions);
 		_storage.SaveInstallState(json);
+		InstallationStatusChanged?.Invoke(stoppedInstall);
 
 		ProcessNext();
 	}

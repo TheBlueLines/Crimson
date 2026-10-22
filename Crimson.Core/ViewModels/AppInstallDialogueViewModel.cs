@@ -31,7 +31,31 @@ public partial class AppInstallDialogViewModel : ObservableObject
 		public CancellationToken CancellationToken { get; } = cancellationToken;
 		public int DriveRequest;
 		public double InstallSize;
+		public Dictionary<string, Manifest> Manifests { get; } = new();
+		public List<string>? InstalledTags;
+		public HashSet<string> InstalledDlcs { get; } = new();
 	}
+
+	private double _availableBytes;
+	private bool _isManageContent;
+	public bool IsManageContent
+	{
+		get => _isManageContent;
+		private set
+		{
+			SetProperty(ref _isManageContent, value);
+			OnPropertyChanged(nameof(IsNewInstallation));
+			OnPropertyChanged(nameof(ConfirmButtonText));
+			OnPropertyChanged(nameof(DiskSizeLabel));
+		}
+	}
+	public bool IsNewInstallation => !IsManageContent;
+	public string ConfirmButtonText => IsManageContent ? "Apply" : "Install";
+	public string DiskSizeLabel => IsManageContent ? "disk space change" : "install size";
+	public ObservableCollection<DlcOption> AvailableInstallTags { get; } = new();
+
+	[ObservableProperty]
+	private string _selectionError = string.Empty;
 
 	[ObservableProperty]
 	private string _gameTitle;
@@ -115,43 +139,67 @@ public partial class AppInstallDialogViewModel : ObservableObject
 		{
 			Activate();
 			_gameAppName = gameInfo.AppName;
+			IsManageContent = gameInfo.LocalAppState?.InstallStatus is not null and not InstallState.NotInstalled;
+			generation.InstalledTags = gameInfo.LocalAppState?.SelectedInstallTags is { } tags ? [.. tags] : null;
 			GameTitle = gameInfo.AppTitle;
 			GameImageUrl = SelectImageUrl(gameInfo);
 			var defaultInstallLocation = _settingsManager?.DefaultInstallLocation
 				?? _storageService.DefaultInstallPath;
-			InstallLocation = Path.Combine(defaultInstallLocation, gameInfo.AppTitle);
+			InstallLocation = IsManageContent ? gameInfo.LocalAppState!.InstallPath : Path.Combine(defaultInstallLocation, gameInfo.AppTitle);
 
 			AvailableDlcs.Clear();
 			var dlcs = _libraryManager.GetDlcsForGame(gameInfo.AppName);
 			HasDlcs = dlcs.Count > 0;
 			foreach (var dlc in dlcs)
 			{
+				if (dlc.LocalAppState?.InstallStatus is InstallState.Installed or InstallState.NeedUpdate)
+					generation.InstalledDlcs.Add(dlc.AppName);
 				AvailableDlcs.Add(new DlcOption
 				{
 					AppName = dlc.AppName,
 					Title = dlc.AppTitle,
-					IsSelected = true
+					IsSelected = !IsManageContent || generation.InstalledDlcs.Contains(dlc.AppName)
 				});
 			}
 
-			var sizes = await _installManager
-				.GetGameDownloadInstallSizes(gameInfo.AppName, cancellationToken)
-				.ConfigureAwait(false);
+			var manifest = await _installManager.GetContentManifestAsync(gameInfo.AppName, IsManageContent, cancellationToken).ConfigureAwait(false);
+			generation.Manifests[gameInfo.AppName] = manifest;
+			foreach (var dlc in dlcs)
+			{
+				generation.Manifests[dlc.AppName] = await _installManager.GetContentManifestAsync(
+					dlc.AppName, IsManageContent && generation.InstalledDlcs.Contains(dlc.AppName), cancellationToken).ConfigureAwait(false);
+			}
+			var sizes = InstallManager.CalculateManifestSizes(manifest);
 			cancellationToken.ThrowIfCancellationRequested();
 			if (!IsCurrentInitialization(generation))
 				return;
 
-			generation.InstallSize = sizes.totalWriteSizeMb;
+			generation.InstallSize = sizes.WriteBytes;
 			_uiDispatcher.TryEnqueue(() =>
 			{
 				if (!IsCurrentInitialization(generation))
 					return;
 
-				TotalDownloadSize = FormatSize(sizes.totalDownloadSizeMb);
-				TotalInstallSize = FormatSize(sizes.totalWriteSizeMb);
+				BaseGameSize = IsManageContent ? "Installed" : FormatSize(sizes.WriteBytes);
+				AvailableInstallTags.Clear();
+				foreach (var tag in manifest.FileManifestList.Elements.SelectMany(file => file.InstallTags)
+					.Where(tag => !string.IsNullOrEmpty(tag)).Distinct(StringComparer.Ordinal).Order())
+				{
+					var option = new DlcOption
+					{
+						AppName = tag,
+						Title = tag,
+						IsSelected = generation.InstalledTags is null || generation.InstalledTags.Contains(tag)
+					};
+					option.PropertyChanged += (_, _) => UpdateSelectionSizes(generation);
+					AvailableInstallTags.Add(option);
+				}
+				foreach (var option in AvailableDlcs)
+					option.PropertyChanged += (_, _) => UpdateSelectionSizes(generation);
+				UpdateSelectionSizes(generation);
 			});
 
-			await UpdateDriveSpace(InstallLocation, sizes.totalWriteSizeMb, generation).ConfigureAwait(false);
+			await UpdateDriveSpace(InstallLocation, generation).ConfigureAwait(false);
 		}
 		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 		{
@@ -189,15 +237,18 @@ public partial class AppInstallDialogViewModel : ObservableObject
 		CreateDesktopShortcut = false;
 		CreateStartMenuShortcut = false;
 		AvailableDlcs.Clear();
+		AvailableInstallTags.Clear();
+		SelectionError = string.Empty;
 		TotalDownloadSize = "0 B";
 		TotalInstallSize = "0 B";
 		DriveSpaceAvailable = "0 B";
 		DriveTotalSpace = "0 B";
 		DriveSpaceUsagePercent = 0;
+		_availableBytes = 0;
 		Volatile.Read(ref _initialization).InstallSize = 0;
 	}
 
-	private async Task UpdateDriveSpace(string installLocation, double installSize, InitializationState generation)
+	private async Task UpdateDriveSpace(string installLocation, InitializationState generation)
 	{
 		var driveRequest = Interlocked.Increment(ref generation.DriveRequest);
 		try
@@ -211,7 +262,7 @@ public partial class AppInstallDialogViewModel : ObservableObject
 			_uiDispatcher.TryEnqueue(() =>
 			{
 				if (IsCurrentRequest(generation, driveRequest))
-					ApplyDriveSpace(driveInfo, installSize);
+					ApplyDriveSpace(driveInfo, generation.InstallSize);
 			});
 		}
 		catch (OperationCanceledException) when (generation.CancellationToken.IsCancellationRequested)
@@ -242,7 +293,8 @@ public partial class AppInstallDialogViewModel : ObservableObject
 		DriveSpaceUsagePercent = ((double)usedSpace / driveInfo.TotalSize) * 100;
 		DriveSpaceAvailable = FormatSize(driveInfo.AvailableFreeSpace);
 		DriveTotalSpace = FormatSize(driveInfo.TotalSize);
-		CanInstall = driveInfo.AvailableFreeSpace > installSize;
+		_availableBytes = driveInfo.AvailableFreeSpace;
+		CanInstall = _availableBytes >= installSize;
 		IsLoadingContent = false;
 	}
 
@@ -261,6 +313,8 @@ public partial class AppInstallDialogViewModel : ObservableObject
 	[RelayCommand]
 	private async Task SelectLocation()
 	{
+		if (IsManageContent)
+			return;
 		var generation = Volatile.Read(ref _initialization);
 		if (FolderPickerRequested != null)
 		{
@@ -268,7 +322,7 @@ public partial class AppInstallDialogViewModel : ObservableObject
 			if (!string.IsNullOrEmpty(newPath) && IsCurrentInitialization(generation))
 			{
 				InstallLocation = Path.Combine(newPath, GameTitle);
-				await UpdateDriveSpace(InstallLocation, generation.InstallSize, generation);
+				await UpdateDriveSpace(InstallLocation, generation);
 				await PersistDefaultInstallLocation(newPath);
 			}
 		}
@@ -300,12 +354,28 @@ public partial class AppInstallDialogViewModel : ObservableObject
 	[RelayCommand]
 	private void ConfirmInstall()
 	{
+		if (!CanInstall || IsLoadingContent)
+			return;
+		if (IsManageContent)
+		{
+			if (!_installManager.TryQueueContentChange(_gameAppName,
+				AvailableInstallTags.Where(option => option.IsSelected).Select(option => option.AppName),
+				AvailableDlcs.Where(option => option.IsSelected).Select(option => option.AppName)))
+			{
+				SelectionError = "The game must be installed and idle to change its content.";
+				return;
+			}
+			InvalidateInitialization();
+			RequestClose?.Invoke();
+			return;
+		}
 		InvalidateInitialization();
 		RequestClose?.Invoke();
 
 		// Queue base game install
 		_installManager.AddToQueue(new InstallItem(_gameAppName, ActionType.Install, InstallLocation)
 		{
+			SelectedInstallTags = AvailableInstallTags.Where(option => option.IsSelected).Select(option => option.AppName).ToList(),
 			CreateDesktopShortcut = CreateDesktopShortcut,
 			CreateStartMenuShortcut = CreateStartMenuShortcut
 		});
@@ -316,6 +386,62 @@ public partial class AppInstallDialogViewModel : ObservableObject
 		{
 			_installManager.AddToQueue(new InstallItem(dlc.AppName, ActionType.Install, InstallLocation));
 			_logger.Information("GameInfoViewModel: Added DLC {Dlc} to Installation Queue", dlc.Title);
+		}
+	}
+
+	private void UpdateSelectionSizes(InitializationState generation)
+	{
+		if (!IsCurrentInitialization(generation) || !generation.Manifests.TryGetValue(_gameAppName, out var manifest))
+			return;
+		var selected = InstalledContentSelection.Filter(manifest.FileManifestList.Elements,
+			AvailableInstallTags.Where(option => option.IsSelected).Select(option => option.AppName).ToList());
+		var before = IsManageContent
+			? InstalledContentSelection.Filter(manifest.FileManifestList.Elements, generation.InstalledTags)
+			: new List<FileManifest>();
+		var beforeNames = before.Select(file => file.Filename).ToHashSet(StringComparer.OrdinalIgnoreCase);
+		var added = selected.Where(file => !beforeNames.Contains(file.Filename));
+		var sizes = InstallManager.CalculateManifestSizes(InstalledContentSelection.WithFiles(manifest, added));
+		var download = sizes.DownloadBytes;
+		var beforeFiles = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+		var afterFiles = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+		AddFiles(beforeFiles, InstallLocation, before);
+		AddFiles(afterFiles, InstallLocation, selected);
+		var requiredSpace = sizes.WriteBytes;
+		foreach (var dlc in AvailableDlcs)
+		{
+			var wasInstalled = IsManageContent && generation.InstalledDlcs.Contains(dlc.AppName);
+			if (!generation.Manifests.TryGetValue(dlc.AppName, out var dlcManifest))
+				continue;
+			var state = _libraryManager.GetGameInfo(dlc.AppName).LocalAppState;
+			var files = InstalledContentSelection.Filter(dlcManifest.FileManifestList.Elements, state?.SelectedInstallTags);
+			var location = wasInstalled && !string.IsNullOrWhiteSpace(state?.InstallPath) ? state.InstallPath : InstallLocation;
+			if (wasInstalled)
+				AddFiles(beforeFiles, location, files);
+			if (dlc.IsSelected)
+				AddFiles(afterFiles, location, files);
+			if (dlc.IsSelected == wasInstalled)
+				continue;
+			var dlcSizes = InstallManager.CalculateManifestSizes(InstalledContentSelection.WithFiles(dlcManifest, files));
+			if (dlc.IsSelected)
+			{
+				download += dlcSizes.DownloadBytes;
+				requiredSpace += dlcSizes.WriteBytes;
+			}
+		}
+		var diskChange = (double)afterFiles.Values.Sum() - beforeFiles.Values.Sum();
+		generation.InstallSize = requiredSpace;
+		TotalDownloadSize = FormatSize(download);
+		TotalInstallSize = diskChange < 0 ? $"-{FormatSize(-diskChange)}" : FormatSize(diskChange);
+		if (!IsLoadingContent)
+			CanInstall = IsDriveSpaceVisible && _availableBytes >= requiredSpace;
+	}
+
+	private static void AddFiles(Dictionary<string, long> files, string location, IEnumerable<FileManifest> manifests)
+	{
+		foreach (var file in manifests)
+		{
+			var path = Path.Combine(location, file.Filename).Replace('\\', '/');
+			files[path] = Math.Max(files.GetValueOrDefault(path), file.FileSize);
 		}
 	}
 

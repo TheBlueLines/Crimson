@@ -1,9 +1,13 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace Crimson.Models;
 
 public class InstallItem(string appName, ActionType action, string location)
 {
+	public List<string>? SelectedInstallTags { get; set; }
+	public string? ContentOwnerAppName { get; set; }
+
 	public string AppName { get; set; } = appName;
 	public ActionType Action { get; set; } = action;
 	public string Location { get; set; } = location;
@@ -36,7 +40,8 @@ public enum ActionType
 	Repair,
 	Update,
 	Uninstall,
-	Verify
+	Verify,
+	ModifyContent
 }
 
 public enum ActionStatus
