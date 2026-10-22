@@ -44,6 +44,52 @@ public class ImageUrlConverter : IValueConverter
 	}
 }
 
+/// <summary>
+/// Store art is often 1200x1600 or larger; decoding at the displayed width keeps a full
+/// results grid from holding dozens of full-size bitmaps. The parameter is that width.
+/// </summary>
+public class DecodedImageUrlConverter : IValueConverter
+{
+	public object Convert(object value, Type targetType, object parameter, string language)
+	{
+		if (value is not string imageUrl ||
+			!Uri.TryCreate(imageUrl, UriKind.Absolute, out var uri) ||
+			!uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+			return null!;
+
+		var image = new BitmapImage { DecodePixelType = DecodePixelType.Logical };
+		if (int.TryParse(parameter as string, out var width) && width > 0)
+			image.DecodePixelWidth = width;
+		image.UriSource = uri;
+		return image;
+	}
+
+	public object ConvertBack(object value, Type targetType, object parameter, string language)
+	{
+		throw new NotImplementedException();
+	}
+}
+
+public class StoreProductActionGlyphConverter : IValueConverter
+{
+	public object Convert(object value, Type targetType, object parameter, string language) => value switch
+	{
+		StoreProductAction.Play => "",
+		StoreProductAction.Install => "",
+		StoreProductAction.Update => "",
+		StoreProductAction.Repair => "",
+		StoreProductAction.Get or StoreProductAction.Buy => "",
+		StoreProductAction.Redeem => "",
+		StoreProductAction.ViewOnWeb => "",
+		_ => ""
+	};
+
+	public object ConvertBack(object value, Type targetType, object parameter, string language)
+	{
+		throw new NotImplementedException();
+	}
+}
+
 public class GamePrimaryActionGlyphConverter : IValueConverter
 {
 	public object Convert(object value, Type targetType, object parameter, string language) => value switch

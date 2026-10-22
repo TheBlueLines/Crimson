@@ -1,115 +1,115 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text.Json;
 
 namespace Crimson.Models;
 
+/// <summary>
+/// One Epic Games Store offer as returned by the catalog search.
+/// </summary>
 public sealed class StoreSearchResult
 {
+	public const string BundleOfferType = "BUNDLE";
+
 	public required string Title { get; init; }
-	public required string ProductSlug { get; init; }
+	public string? ProductSlug { get; init; }
+	public string? Namespace { get; init; }
+	public string? OfferId { get; init; }
+	public string? OfferType { get; init; }
+	public string? Description { get; init; }
+	public string? Seller { get; init; }
 	public string? ImageUrl { get; init; }
+	public string? WideImageUrl { get; init; }
+	public DateTimeOffset? EffectiveDate { get; init; }
+	public StorePrice? Price { get; init; }
+	public StorePromotion? CurrentPromotion { get; init; }
+	public StorePromotion? UpcomingPromotion { get; init; }
+	public IReadOnlyList<string> CatalogItemIds { get; init; } = [];
+
+	public bool HasOfferReference => !string.IsNullOrWhiteSpace(Namespace) && !string.IsNullOrWhiteSpace(OfferId);
+
+	public StoreProductRequest ToProductRequest() => new()
+	{
+		Namespace = Namespace,
+		OfferId = OfferId,
+		ProductSlug = ProductSlug,
+		Title = Title,
+		ImageUrl = ImageUrl
+	};
 }
 
-internal static class StoreSearchResultParser
+/// <summary>
+/// Prices are in the currency's minor unit, as Epic reports them.
+/// The formatted strings come from Epic, localized for the requested locale.
+/// </summary>
+public sealed class StorePrice
 {
-	public static IReadOnlyList<StoreSearchResult> Parse(string json)
-	{
-		using var document = JsonDocument.Parse(json);
-		if (!TryGetProperty(document.RootElement, "data", out var data) ||
-			!TryGetProperty(data, "Catalog", out var catalog) ||
-			!TryGetProperty(catalog, "searchStore", out var searchStore) ||
-			!TryGetProperty(searchStore, "elements", out var elements) ||
-			elements.ValueKind != JsonValueKind.Array)
-			return [];
+	public long OriginalPrice { get; init; }
+	public long DiscountPrice { get; init; }
+	public string? CurrencyCode { get; init; }
+	public string? FormattedOriginalPrice { get; init; }
+	public string? FormattedDiscountPrice { get; init; }
 
-		var results = new List<StoreSearchResult>();
-		foreach (var element in elements.EnumerateArray())
-		{
-			var title = GetString(element, "title");
-			var productSlug = GetProductSlug(element);
-			if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(productSlug))
-				continue;
+	public bool IsFree => DiscountPrice <= 0;
 
-			results.Add(new StoreSearchResult
-			{
-				Title = title,
-				ProductSlug = productSlug,
-				ImageUrl = GetImageUrl(element)
-			});
-		}
+	public bool IsDiscounted => OriginalPrice > 0 && DiscountPrice < OriginalPrice;
 
-		return results;
-	}
+	public int DiscountPercentage => IsDiscounted
+		? (int)Math.Round((1 - (double)DiscountPrice / OriginalPrice) * 100, MidpointRounding.AwayFromZero)
+		: 0;
+}
 
-	private static string? GetProductSlug(JsonElement element)
-	{
-		var slug = GetMappingSlug(element, "catalogNs")
-				   ?? GetMappingSlug(element, "offerMappings")
-				   ?? GetString(element, "productSlug")
-				   ?? GetString(element, "urlSlug");
-		if (string.IsNullOrWhiteSpace(slug))
-			return null;
+/// <summary>
+/// A time-limited discount. Epic's <c>discountPercentage</c> is the share of the
+/// original price the buyer pays, so 0 means the offer is free during the window.
+/// </summary>
+public sealed class StorePromotion
+{
+	public DateTimeOffset StartDate { get; init; }
+	public DateTimeOffset EndDate { get; init; }
+	public int DiscountPercentage { get; init; }
 
-		slug = slug.Trim('/');
-		var separator = slug.IndexOf('/');
-		return separator >= 0 ? slug[..separator] : slug;
-	}
+	public bool IsFree => DiscountPercentage == 0;
 
-	private static string? GetMappingSlug(JsonElement element, string propertyName)
-	{
-		if (!TryGetProperty(element, propertyName, out var container))
-			return null;
+	public bool IsActive(DateTimeOffset now) => StartDate <= now && now < EndDate;
+}
 
-		JsonElement mappings;
-		if (container.ValueKind == JsonValueKind.Array)
-		{
-			mappings = container;
-		}
-		else if (!TryGetProperty(container, "mappings", out mappings) ||
-				 mappings.ValueKind != JsonValueKind.Array)
-		{
-			return null;
-		}
+public sealed class StoreSearchPage
+{
+	public static readonly StoreSearchPage Empty = new() { Results = [], Total = 0 };
 
-		foreach (var mapping in mappings.EnumerateArray())
-		{
-			var pageSlug = GetString(mapping, "pageSlug");
-			if (!string.IsNullOrWhiteSpace(pageSlug))
-				return pageSlug;
-		}
+	public required IReadOnlyList<StoreSearchResult> Results { get; init; }
+	public int Total { get; init; }
+}
 
-		return null;
-	}
+public sealed class StoreOfferDetails
+{
+	public required StoreSearchResult Offer { get; init; }
+	public string? LongDescription { get; init; }
+	public string? Developer { get; init; }
+	public string? Publisher { get; init; }
+	public DateTimeOffset? ReleaseDate { get; init; }
+	public bool IsCodeRedemptionOnly { get; init; }
+	public IReadOnlyList<string> GalleryImageUrls { get; init; } = [];
+	public IReadOnlyList<string> Tags { get; init; } = [];
+}
 
-	private static string? GetImageUrl(JsonElement element)
-	{
-		if (!TryGetProperty(element, "keyImages", out var images) || images.ValueKind != JsonValueKind.Array)
-			return null;
+public sealed class StoreOfferReference
+{
+	public required string Namespace { get; init; }
+	public required string OfferId { get; init; }
+}
 
-		foreach (var preferredType in new[] { "OfferImageTall", "Thumbnail", "OfferImageWide" })
-		{
-			foreach (var image in images.EnumerateArray())
-			{
-				if (string.Equals(GetString(image, "type"), preferredType, StringComparison.OrdinalIgnoreCase))
-					return GetString(image, "url");
-			}
-		}
+/// <summary>
+/// Navigation parameter for the native product page. Either the namespace and offer id
+/// or a product slug is enough; the title and image let the page show something while loading.
+/// </summary>
+public sealed class StoreProductRequest
+{
+	public string? Namespace { get; init; }
+	public string? OfferId { get; init; }
+	public string? ProductSlug { get; init; }
+	public string? Title { get; init; }
+	public string? ImageUrl { get; init; }
 
-		return null;
-	}
-
-	private static string? GetString(JsonElement element, string propertyName) =>
-		TryGetProperty(element, propertyName, out var property) && property.ValueKind == JsonValueKind.String
-			? property.GetString()
-			: null;
-
-	private static bool TryGetProperty(JsonElement element, string propertyName, out JsonElement property)
-	{
-		if (element.ValueKind == JsonValueKind.Object && element.TryGetProperty(propertyName, out property))
-			return true;
-
-		property = default;
-		return false;
-	}
+	public bool HasOfferReference => !string.IsNullOrWhiteSpace(Namespace) && !string.IsNullOrWhiteSpace(OfferId);
 }

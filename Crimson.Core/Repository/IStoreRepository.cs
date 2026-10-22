@@ -11,10 +11,6 @@ public interface IStoreRepository
 
 	public Task<IEnumerable<Asset>> FetchGameAssets(string platform = "Windows", string label = "Live");
 
-	public Task<IReadOnlyList<StoreSearchResult>> SearchStore(
-		string query,
-		CancellationToken cancellationToken = default);
-
 	public Task<byte[]> GetGameManifest(
 		GetManifestUrlData urlData,
 		CancellationToken cancellationToken = default);

@@ -19,7 +19,7 @@
 - Sign in through Epic Games' embedded authentication flow.
 - Browse your owned games with metadata and artwork.
 - Search your library and the Epic Games Store from one place.
-- Browse the Store, including authentication and checkout, without leaving Crimson.
+- Browse the Store natively, and check out or redeem codes without leaving Crimson.
 - Install, update, verify, repair, move, and uninstall supported games.
 - Pause, resume, or cancel downloads and monitor the installation queue.
 - Launch games with fresh Epic credentials and ownership tokens when required.
@@ -63,7 +63,7 @@ See [Installing and releasing Crimson](docs/RELEASING.md) for detailed installat
 4. Follow active and queued work from **Downloads**.
 5. Launch an installed game from its page, the navigation pane, or a Crimson-created shortcut.
 
-The embedded **Store** can be used to browse and acquire games. Newly acquired titles appear after Crimson refreshes account ownership.
+The **Store** shows free games, new releases, sales, and search results, with product pages that install or launch games you already own. Buying, claiming, and redeeming codes open Epic's web store inside Crimson. Newly acquired titles appear after Crimson refreshes account ownership.
 
 ## Local data and credentials
 

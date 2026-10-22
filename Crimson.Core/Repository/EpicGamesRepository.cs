@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,43 +19,9 @@ namespace Crimson.Repository
 		private const string CatalogHost = "catalog-public-service-prod06.ol.epicgames.com";
 		private const string EcommerceHost = "ecommerceintegration-public-service-ecomprod02.ol.epicgames.com";
 		private const string OAuthHost = "account-public-service-prod03.ol.epicgames.com";
-		private const string StoreSearchUrl = "https://launcher.store.epicgames.com/graphql";
-		private const string StoreSearchQuery = """
-			query searchStoreQuery(
-				$count: Int,
-				$country: String!,
-				$keywords: String,
-				$locale: String,
-				$sortBy: String,
-				$sortDir: String,
-				$start: Int
-			) {
-				Catalog {
-					searchStore(
-						count: $count,
-						country: $country,
-						keywords: $keywords,
-						locale: $locale,
-						sortBy: $sortBy,
-						sortDir: $sortDir,
-						start: $start
-					) {
-						elements {
-							title
-							keyImages { type url }
-							productSlug
-							urlSlug
-							catalogNs { mappings(pageType: "productHome") { pageSlug } }
-							offerMappings { pageSlug }
-						}
-					}
-				}
-			}
-			""";
 
 		private readonly HttpClient _apiClient;
 		private readonly HttpClient _contentClient;
-		private readonly HttpClient _storeClient;
 		private readonly ILogger _log;
 		private readonly AuthManager _authManager;
 
@@ -64,14 +29,12 @@ namespace Crimson.Repository
 			AuthManager authManager,
 			ILogger logger,
 			HttpClient apiClient,
-			HttpClient contentClient,
-			HttpClient storeClient)
+			HttpClient contentClient)
 		{
 			_log = logger;
 			_authManager = authManager;
 			_apiClient = apiClient;
 			_contentClient = contentClient;
-			_storeClient = storeClient;
 		}
 
 		public async Task<Metadata> FetchGameMetaData(string nameSpace, string catalogItemId)
@@ -133,57 +96,6 @@ namespace Crimson.Repository
 			{
 				_log.Error("FetchGameAssets failed with {ErrorType}", ex.GetType().Name);
 				throw;
-			}
-		}
-
-		public async Task<IReadOnlyList<StoreSearchResult>> SearchStore(
-			string query,
-			CancellationToken cancellationToken = default)
-		{
-			if (string.IsNullOrWhiteSpace(query))
-				return [];
-
-			var payload = JsonSerializer.Serialize(new
-			{
-				query = StoreSearchQuery,
-				variables = new
-				{
-					count = 5,
-					country = "US",
-					keywords = query.Trim(),
-					locale = "en-US",
-					sortBy = "relevancy",
-					sortDir = "DESC",
-					start = 0
-				}
-			});
-
-			try
-			{
-				using var request = new HttpRequestMessage(
-					HttpMethod.Post,
-					EpicEndpointPolicy.RequireStoreUri(StoreSearchUrl))
-				{
-					Content = new StringContent(payload, Encoding.UTF8, "application/json")
-				};
-				using var response = await _storeClient.SendAsync(request, cancellationToken);
-				if (!response.IsSuccessStatusCode)
-				{
-					_log.Warning("SearchStore failed with HTTP {StatusCode}", (int)response.StatusCode);
-					return [];
-				}
-
-				var result = await response.Content.ReadAsStringAsync(cancellationToken);
-				return StoreSearchResultParser.Parse(result);
-			}
-			catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-			{
-				throw;
-			}
-			catch (Exception ex)
-			{
-				_log.Warning(ex, "SearchStore failed");
-				return [];
 			}
 		}
 
