@@ -58,6 +58,9 @@ public class LocalAppState
 	[JsonPropertyName("uninstaller")]
 	public Dictionary<string, string> Uninstaller { get; set; }
 
+	[JsonPropertyName("selected_install_tags")]
+	public List<string>? SelectedInstallTags { get; set; }
+
 	[JsonPropertyName("version")]
 	public string Version { get; set; }
 

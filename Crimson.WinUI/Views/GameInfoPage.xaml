@@ -130,6 +130,8 @@
 										</Style>
 									</MenuFlyout.MenuFlyoutPresenterStyle>
 									<MenuFlyout.Items>
+										<MenuFlyoutItem Command="{x:Bind ViewModel.ManageContentCommand}" Text="Manage content"
+											IsEnabled="{x:Bind ViewModel.CanManageContent, Mode=OneWay}" />
 										<MenuFlyoutItem Command="{x:Bind ViewModel.VerifyRepairCommand}" Text="Verify / Repair">
 											<MenuFlyoutItem.Icon>
 												<FontIcon Glyph="&#xE90F;" />

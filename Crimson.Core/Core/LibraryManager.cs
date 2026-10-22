@@ -26,6 +26,9 @@ public class LibraryManager
 	public event Action<IEnumerable<Game>> LibraryUpdated;
 	public event Action<Game> GameStatusUpdated;
 
+	private readonly ConcurrentDictionary<string, byte> _runningApps = new();
+	public bool IsAppRunning(string appName) => _runningApps.ContainsKey(appName);
+
 	private DateTime _lastUpdateDateTime = DateTime.MinValue;
 	private readonly SemaphoreSlim _updateGate = new(1, 1);
 	private IReadOnlySet<string> _ownedAppNames = new HashSet<string>();
@@ -209,10 +212,9 @@ public class LibraryManager
 			return false;
 		}
 
-		if (ownershipTokenPath is null)
-			process.Dispose();
-		else
-			_ = DeleteOwnershipTokenAfterExitAsync(process, ownershipTokenPath);
+		_runningApps.TryAdd(game.AppName, 0);
+		_ = ObserveGameExitAsync(process, game, ownershipTokenPath);
+		GameStatusUpdated?.Invoke(game);
 		return true;
 	}
 
@@ -223,6 +225,9 @@ public class LibraryManager
 			_log.Warning("LaunchApp: Trying to launch a game that is not owned");
 			return false;
 		}
+
+		if (IsAppRunning(game.AppName))
+			return false;
 
 		if (game.LocalAppState?.InstallStatus is not InstallState.Installed and not InstallState.NeedUpdate)
 		{
@@ -283,7 +288,7 @@ public class LibraryManager
 		return string.Join(" ", parameters);
 	}
 
-	private async Task DeleteOwnershipTokenAfterExitAsync(Process process, string path)
+	private async Task ObserveGameExitAsync(Process process, Game game, string? path)
 	{
 		try
 		{
@@ -297,6 +302,8 @@ public class LibraryManager
 		{
 			process.Dispose();
 			DeleteOwnershipToken(path);
+			_runningApps.TryRemove(game.AppName, out _);
+			GameStatusUpdated?.Invoke(game);
 		}
 	}
 

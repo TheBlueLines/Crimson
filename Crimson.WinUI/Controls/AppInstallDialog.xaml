@@ -1,4 +1,4 @@
-<UserControl
+﻿<UserControl
 	x:Class="Crimson.Controls.AppInstallDialog"
 	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -67,6 +67,7 @@
 						Grid.Column="2"
 						Padding="6"
 						Command="{x:Bind ViewModel.SelectLocationCommand}"
+						Visibility="{x:Bind ViewModel.IsNewInstallation, Mode=OneWay}"
 						Style="{StaticResource AccentButtonStyle}">
 						<FontIcon Glyph="&#xE70F;" />
 					</Button>
@@ -90,7 +91,7 @@
 			</StackPanel>
 
 			<!--  Shortcuts  -->
-			<StackPanel Spacing="8">
+			<StackPanel Spacing="8" Visibility="{x:Bind ViewModel.IsNewInstallation, Mode=OneWay}">
 				<TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Shortcuts" />
 				<CheckBox
 					Content="Create Start menu shortcut"
@@ -128,6 +129,14 @@
 						Text="{x:Bind ViewModel.BaseGameSize, Mode=OneWay}" />
 				</Grid>
 
+				<ItemsRepeater ItemsSource="{x:Bind ViewModel.AvailableInstallTags, Mode=OneWay}">
+					<ItemsRepeater.ItemTemplate>
+						<DataTemplate x:DataType="models:DlcOption">
+							<CheckBox Content="{x:Bind Title}" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" />
+						</DataTemplate>
+					</ItemsRepeater.ItemTemplate>
+				</ItemsRepeater>
+
 				<!--  DLC/Add-ons List  -->
 				<ItemsRepeater
 					Margin="0,4,0,0"
@@ -164,6 +173,8 @@
 					Text="Calculating required space..." />
 			</StackPanel>
 
+			<TextBlock Text="{x:Bind ViewModel.SelectionError, Mode=OneWay}" TextWrapping="Wrap" />
+
 			<!--  Summary  -->
 			<Grid ColumnDefinitions="*, Auto">
 				<StackPanel Orientation="Vertical" Spacing="4">
@@ -178,7 +189,7 @@
 						<FontIcon Glyph="&#xEDA2;" />
 						<TextBlock>
 							<Run Text="{x:Bind ViewModel.TotalInstallSize, Mode=OneWay}" />
-							<Run Text="install size" />
+							<Run Text="{x:Bind ViewModel.DiskSizeLabel, Mode=OneWay}" />
 						</TextBlock>
 					</StackPanel>
 				</StackPanel>
@@ -196,7 +207,7 @@
 						Width="80"
 						Height="50"
 						Command="{x:Bind ViewModel.ConfirmInstallCommand}"
-						Content="Install"
+						Content="{x:Bind ViewModel.ConfirmButtonText, Mode=OneWay}"
 						IsEnabled="{x:Bind ViewModel.CanInstall, Mode=OneWay}"
 						Style="{StaticResource AccentButtonStyle}" />
 				</StackPanel>

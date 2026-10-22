@@ -28,6 +28,9 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 	private Game? _game;
 
 	[ObservableProperty]
+	private bool _canManageContent;
+
+	[ObservableProperty]
 	private bool _isInstalled;
 
 	[ObservableProperty]
@@ -162,9 +165,12 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 	{
 		try
 		{
-			if (installItem == null || installItem.AppName != Game?.AppName) return;
+			if (installItem == null || Game is null) return;
+			if (installItem.AppName != Game.AppName && installItem.ContentOwnerAppName != Game.AppName &&
+				!_libraryManager.GetDlcsForGame(Game.AppName).Any(dlc => dlc.AppName == installItem.AppName)) return;
 			_uiDispatcher.TryEnqueue(() =>
 			{
+				CanManageContent = _installer.CanManageContent(Game.AppName);
 				_log.LogInformation("GameInfoPage: Installation Status Changed for {Game}", installItem.AppName);
 				switch (installItem.Status)
 				{
@@ -247,6 +253,7 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 		if (Game is null)
 			return;
 
+		CanManageContent = _installer.CanManageContent(Game.AppName);
 		IsProgressRingVisible = false;
 		IsPrimaryActionEnabled = true;
 		PrimaryAction = GetPrimaryAction(Game.LocalAppState?.InstallStatus);
@@ -285,6 +292,7 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 	private static string GetActionLabel(ActionType action) => action switch
 	{
 		ActionType.Install => "Installation",
+		ActionType.ModifyContent => "Content change",
 		ActionType.Update => "Update",
 		ActionType.Repair or ActionType.Verify => "Repair",
 		ActionType.Uninstall => "Uninstall",
@@ -306,6 +314,15 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 	{
 		UnregisterEventHandlers();
 
+	}
+
+	[RelayCommand]
+	private async Task ManageContentAsync()
+	{
+		if (Game is null || !_installer.CanManageContent(Game.AppName))
+			return;
+		if (ShowInstallDialogRequested is not null)
+			await ShowInstallDialogRequested.Invoke();
 	}
 
 	[RelayCommand]
