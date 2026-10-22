@@ -13,7 +13,10 @@ namespace Crimson.Controls;
 
 public sealed partial class GameCover : UserControl
 {
-	private static readonly ConcurrentDictionary<string, SoftwareBitmapSource> GrayscaleCache = new();
+	// Cache the decoded pixels rather than SoftwareBitmapSource instances: those hold
+	// composition surfaces that become invalid once the page that created them is torn
+	// down (e.g. after visiting the WebView2-hosted Store), and reusing them crashes XAML.
+	private static readonly ConcurrentDictionary<string, GrayscalePixels> GrayscaleCache = new();
 
 	private int _loadVersion;
 
@@ -71,54 +74,24 @@ public sealed partial class GameCover : UserControl
 	{
 		try
 		{
-			if (GrayscaleCache.TryGetValue(url, out var cached))
+			if (!GrayscaleCache.TryGetValue(url, out var pixels))
 			{
-				if (version == _loadVersion)
-					ApplyGrayscale(cached);
+				pixels = await DecodeGrayscaleAsync(url);
+				GrayscaleCache.TryAdd(url, pixels);
+			}
+
+			if (version != _loadVersion)
 				return;
-			}
 
-			using var stream = await RandomAccessStreamReference.CreateFromUri(new Uri(url)).OpenReadAsync();
-			var decoder = await BitmapDecoder.CreateAsync(stream);
-			var transform = new BitmapTransform
-			{
-				ScaledWidth = 320,
-				ScaledHeight = 430,
-				InterpolationMode = BitmapInterpolationMode.Fant
-			};
-			using var source = await decoder.GetSoftwareBitmapAsync(
-				BitmapPixelFormat.Bgra8,
-				BitmapAlphaMode.Premultiplied,
-				transform,
-				ExifOrientationMode.IgnoreExifOrientation,
-				ColorManagementMode.DoNotColorManage);
-
-			var width = source.PixelWidth;
-			var height = source.PixelHeight;
-			var bytes = new byte[width * height * 4];
-			var inputBuffer = new Windows.Storage.Streams.Buffer((uint)bytes.Length) { Length = (uint)bytes.Length };
-			source.CopyToBuffer(inputBuffer);
-			using (var reader = DataReader.FromBuffer(inputBuffer))
-				reader.ReadBytes(bytes);
-
-			for (var i = 0; i < bytes.Length; i += 4)
-			{
-				var luminance = (byte)((bytes[i] * 114 + bytes[i + 1] * 587 + bytes[i + 2] * 299) / 1000);
-				bytes[i] = luminance;
-				bytes[i + 1] = luminance;
-				bytes[i + 2] = luminance;
-			}
-
-			using var destination = new SoftwareBitmap(BitmapPixelFormat.Bgra8, width, height, BitmapAlphaMode.Premultiplied);
+			using var destination = new SoftwareBitmap(BitmapPixelFormat.Bgra8, pixels.Width, pixels.Height, BitmapAlphaMode.Premultiplied);
 			using (var writer = new DataWriter())
 			{
-				writer.WriteBytes(bytes);
+				writer.WriteBytes(pixels.Bytes);
 				destination.CopyFromBuffer(writer.DetachBuffer());
 			}
 
 			var imageSource = new SoftwareBitmapSource();
 			await imageSource.SetBitmapAsync(destination);
-			GrayscaleCache.TryAdd(url, imageSource);
 
 			if (version == _loadVersion)
 				ApplyGrayscale(imageSource);
@@ -128,6 +101,42 @@ public sealed partial class GameCover : UserControl
 			// If the cover cannot be decoded, keep the muted overlay so the card still
 			// reads as unavailable instead of showing a broken image.
 		}
+	}
+
+	private static async Task<GrayscalePixels> DecodeGrayscaleAsync(string url)
+	{
+		using var stream = await RandomAccessStreamReference.CreateFromUri(new Uri(url)).OpenReadAsync();
+		var decoder = await BitmapDecoder.CreateAsync(stream);
+		var transform = new BitmapTransform
+		{
+			ScaledWidth = 320,
+			ScaledHeight = 430,
+			InterpolationMode = BitmapInterpolationMode.Fant
+		};
+		using var source = await decoder.GetSoftwareBitmapAsync(
+			BitmapPixelFormat.Bgra8,
+			BitmapAlphaMode.Premultiplied,
+			transform,
+			ExifOrientationMode.IgnoreExifOrientation,
+			ColorManagementMode.DoNotColorManage);
+
+		var width = source.PixelWidth;
+		var height = source.PixelHeight;
+		var bytes = new byte[width * height * 4];
+		var inputBuffer = new Windows.Storage.Streams.Buffer((uint)bytes.Length) { Length = (uint)bytes.Length };
+		source.CopyToBuffer(inputBuffer);
+		using (var reader = DataReader.FromBuffer(inputBuffer))
+			reader.ReadBytes(bytes);
+
+		for (var i = 0; i < bytes.Length; i += 4)
+		{
+			var luminance = (byte)((bytes[i] * 114 + bytes[i + 1] * 587 + bytes[i + 2] * 299) / 1000);
+			bytes[i] = luminance;
+			bytes[i + 1] = luminance;
+			bytes[i + 2] = luminance;
+		}
+
+		return new GrayscalePixels(bytes, width, height);
 	}
 
 	private void ApplyGrayscale(SoftwareBitmapSource imageSource)
@@ -162,4 +171,6 @@ public sealed partial class GameCover : UserControl
 			UriSource = uri
 		};
 	}
+
+	private sealed record GrayscalePixels(byte[] Bytes, int Width, int Height);
 }
