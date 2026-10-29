@@ -1,4 +1,4 @@
-<Page
+﻿<Page
 	x:Class="Crimson.Views.StoreProductPage"
 	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -6,7 +6,9 @@
 	xmlns:converters="using:CommunityToolkit.WinUI.Converters"
 	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
 	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+	xmlns:models="using:Crimson.Models"
 	xmlns:utils="using:Crimson.Utils"
+	xmlns:viewModels="using:Crimson.ViewModels"
 	mc:Ignorable="d">
 
 	<Page.Resources>
@@ -173,7 +175,6 @@
 							<HyperlinkButton
 								Padding="0,4"
 								Command="{x:Bind ViewModel.OpenOnWebCommand}"
-								ToolTipService.ToolTip="Reviews, system requirements and add-ons"
 								Visibility="{x:Bind ViewModel.CanOpenOnWeb, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
 								<StackPanel Orientation="Horizontal" Spacing="8">
 									<FontIcon FontSize="14" Glyph="&#xE774;" />
@@ -203,6 +204,30 @@
 									Style="{StaticResource CaptionTextBlockStyle}"
 									Text="Release date" />
 								<TextBlock Text="{x:Bind ViewModel.ReleaseDateText, Mode=OneWay}" />
+							</StackPanel>
+							<StackPanel Spacing="2" Visibility="{x:Bind ViewModel.HasRefundType, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+								<TextBlock
+									Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+									Style="{StaticResource CaptionTextBlockStyle}"
+									Text="Refund type" />
+								<TextBlock Text="{x:Bind ViewModel.RefundTypeText, Mode=OneWay}" />
+							</StackPanel>
+							<StackPanel Spacing="2" Visibility="{x:Bind ViewModel.HasSocialLinks, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+								<TextBlock
+									Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+									Style="{StaticResource CaptionTextBlockStyle}"
+									Text="Follow" />
+								<ItemsRepeater ItemsSource="{x:Bind ViewModel.SocialLinks, Mode=OneWay}">
+									<ItemsRepeater.ItemTemplate>
+										<DataTemplate x:DataType="models:StoreSocialLink">
+											<HyperlinkButton
+												Padding="0,2"
+												Click="SocialLink_Click"
+												Content="{x:Bind Platform}"
+												DataContext="{x:Bind}" />
+										</DataTemplate>
+									</ItemsRepeater.ItemTemplate>
+								</ItemsRepeater>
 							</StackPanel>
 						</StackPanel>
 					</StackPanel>
@@ -238,26 +263,278 @@
 							</ItemsRepeater.ItemTemplate>
 						</ItemsRepeater>
 
-						<FlipView
-							Height="400"
-							Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-							CornerRadius="8"
-							ItemsSource="{x:Bind ViewModel.GalleryImageUrls, Mode=OneWay}"
-							Visibility="{x:Bind ViewModel.HasGallery, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
-							<FlipView.ItemTemplate>
-								<DataTemplate x:DataType="x:String">
-									<Image Source="{x:Bind Converter={StaticResource DecodedImageUrlConverter}, ConverterParameter=1280}" Stretch="Uniform" />
-								</DataTemplate>
-							</FlipView.ItemTemplate>
-						</FlipView>
+						<!--  Screenshots and trailer covers, like the web page's media carousel.  -->
+						<StackPanel Spacing="8" Visibility="{x:Bind ViewModel.HasMedia, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+							<FlipView
+								x:Name="MediaFlipView"
+								Height="460"
+								Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+								CornerRadius="8"
+								ItemsSource="{x:Bind ViewModel.Media, Mode=OneWay}">
+								<FlipView.ItemTemplate>
+									<DataTemplate x:DataType="models:StoreMediaItem">
+										<Grid>
+											<Image Source="{x:Bind ImageUrl, Converter={StaticResource DecodedImageUrlConverter}, ConverterParameter=1280}" Stretch="Uniform" />
+											<!--  Trailers can only be played on the web store; the cover shows there is one.  -->
+											<Border
+												Width="72"
+												Height="72"
+												HorizontalAlignment="Center"
+												VerticalAlignment="Center"
+												Background="#99000000"
+												CornerRadius="36"
+												Visibility="{x:Bind IsVideo, Converter={StaticResource BoolToVisibilityConverter}}">
+												<FontIcon
+													FontSize="28"
+													Foreground="White"
+													Glyph="&#xE768;" />
+											</Border>
+										</Grid>
+									</DataTemplate>
+								</FlipView.ItemTemplate>
+							</FlipView>
+							<PipsPager
+								HorizontalAlignment="Center"
+								MaxVisiblePips="12"
+								NumberOfPages="{x:Bind ViewModel.Media.Count, Mode=OneWay}"
+								SelectedPageIndex="{x:Bind MediaFlipView.SelectedIndex, Mode=TwoWay}" />
+						</StackPanel>
 
-						<StackPanel Spacing="8" Visibility="{x:Bind ViewModel.HasDescription, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+						<!--  The full description with its headings and pictures, in the web page's order.  -->
+						<StackPanel Spacing="12" Visibility="{x:Bind ViewModel.HasDescriptionBlocks, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
 							<TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="About" />
-							<TextBlock
-								IsTextSelectionEnabled="True"
-								Style="{StaticResource BodyTextBlockStyle}"
-								Text="{x:Bind ViewModel.Description, Mode=OneWay}"
-								TextWrapping="Wrap" />
+							<ItemsRepeater ItemsSource="{x:Bind ViewModel.DescriptionBlocks, Mode=OneWay}">
+								<ItemsRepeater.Layout>
+									<StackLayout Spacing="12" />
+								</ItemsRepeater.Layout>
+								<ItemsRepeater.ItemTemplate>
+									<DataTemplate x:DataType="utils:StoreDescriptionBlock">
+										<Grid>
+											<TextBlock
+												Margin="0,8,0,0"
+												Style="{StaticResource BodyStrongTextBlockStyle}"
+												FontSize="18"
+												Text="{x:Bind Text}"
+												TextWrapping="Wrap"
+												Visibility="{x:Bind IsHeading, Converter={StaticResource BoolToVisibilityConverter}}" />
+											<TextBlock
+												IsTextSelectionEnabled="True"
+												Style="{StaticResource BodyTextBlockStyle}"
+												Text="{x:Bind Text}"
+												TextWrapping="Wrap"
+												Visibility="{x:Bind IsText, Converter={StaticResource BoolToVisibilityConverter}}" />
+											<Border
+												HorizontalAlignment="Left"
+												CornerRadius="8"
+												Visibility="{x:Bind IsImage, Converter={StaticResource BoolToVisibilityConverter}}">
+												<Image
+													MaxHeight="520"
+													Source="{x:Bind ImageUrl, Converter={StaticResource DecodedImageUrlConverter}, ConverterParameter=900}"
+													Stretch="Uniform" />
+											</Border>
+										</Grid>
+									</DataTemplate>
+								</ItemsRepeater.ItemTemplate>
+							</ItemsRepeater>
+						</StackPanel>
+
+						<!--  Epic player ratings and the OpenCritic summary.  -->
+						<StackPanel Spacing="12" Visibility="{x:Bind ViewModel.HasRatings, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+							<TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Ratings" />
+							<Grid ColumnSpacing="12">
+								<Grid.ColumnDefinitions>
+									<ColumnDefinition Width="*" />
+									<ColumnDefinition Width="*" />
+								</Grid.ColumnDefinitions>
+								<Border
+									Padding="20"
+									Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+									BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+									BorderThickness="1"
+									CornerRadius="8"
+									Visibility="{x:Bind ViewModel.HasPlayerRating, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+									<StackPanel Spacing="8">
+										<TextBlock
+											Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+											Style="{StaticResource CaptionTextBlockStyle}"
+											Text="Epic player rating" />
+										<StackPanel Orientation="Horizontal" Spacing="8">
+											<TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="{x:Bind ViewModel.PlayerRatingText, Mode=OneWay}" />
+											<FontIcon
+												VerticalAlignment="Center"
+												FontSize="22"
+												Foreground="Gold"
+												Glyph="&#xE735;" />
+											<TextBlock
+												VerticalAlignment="Center"
+												Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+												Text="out of 5" />
+										</StackPanel>
+										<ItemsRepeater ItemsSource="{x:Bind ViewModel.RatingHighlights, Mode=OneWay}">
+											<ItemsRepeater.ItemTemplate>
+												<DataTemplate x:DataType="x:String">
+													<TextBlock Text="{x:Bind}" TextWrapping="Wrap" />
+												</DataTemplate>
+											</ItemsRepeater.ItemTemplate>
+										</ItemsRepeater>
+									</StackPanel>
+								</Border>
+								<Border
+									Grid.Column="1"
+									Padding="20"
+									Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+									BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+									BorderThickness="1"
+									CornerRadius="8"
+									Visibility="{x:Bind ViewModel.HasCriticScore, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+									<StackPanel Spacing="8">
+										<TextBlock
+											Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+											Style="{StaticResource CaptionTextBlockStyle}"
+											Text="OpenCritic" />
+										<StackPanel Orientation="Horizontal" Spacing="16">
+											<StackPanel>
+												<TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="{x:Bind ViewModel.CriticScoreText, Mode=OneWay}" />
+												<TextBlock
+													Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+													Style="{StaticResource CaptionTextBlockStyle}"
+													Text="Top critic average" />
+											</StackPanel>
+											<StackPanel Visibility="{x:Bind ViewModel.HasCriticRecommended, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+												<TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="{x:Bind ViewModel.CriticRecommendedText, Mode=OneWay}" />
+												<TextBlock
+													Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+													Style="{StaticResource CaptionTextBlockStyle}"
+													Text="Critics recommend" />
+											</StackPanel>
+										</StackPanel>
+										<TextBlock
+											Text="{x:Bind ViewModel.CriticAward, Mode=OneWay}"
+											Visibility="{x:Bind ViewModel.HasCriticAward, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+									</StackPanel>
+								</Border>
+							</Grid>
+						</StackPanel>
+
+						<!--  Add-ons and extras sold for this game.  -->
+						<StackPanel Spacing="12" Visibility="{x:Bind ViewModel.HasAddOns, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+							<TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Add-ons" />
+							<ItemsRepeater ItemsSource="{x:Bind ViewModel.AddOns, Mode=OneWay}">
+								<ItemsRepeater.Layout>
+									<UniformGridLayout
+										MinColumnSpacing="12"
+										MinItemWidth="160"
+										MinRowSpacing="12"
+										ItemsStretch="Uniform" />
+								</ItemsRepeater.Layout>
+								<ItemsRepeater.ItemTemplate>
+									<DataTemplate x:DataType="viewModels:StoreItem">
+										<Button
+											Padding="0"
+											HorizontalAlignment="Stretch"
+											HorizontalContentAlignment="Stretch"
+											Click="AddOn_Click"
+											DataContext="{x:Bind}"
+											ToolTipService.ToolTip="{x:Bind Title}">
+											<StackPanel>
+												<Border Height="200" CornerRadius="4,4,0,0">
+													<Image Source="{x:Bind ImageUrl, Converter={StaticResource DecodedImageUrlConverter}, ConverterParameter=320}" Stretch="UniformToFill" />
+												</Border>
+												<StackPanel Padding="10,8" Spacing="2">
+													<TextBlock
+														MaxLines="2"
+														Style="{StaticResource BodyStrongTextBlockStyle}"
+														Text="{x:Bind Title}"
+														TextTrimming="CharacterEllipsis"
+														TextWrapping="Wrap" />
+													<TextBlock
+														Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+														Text="{x:Bind PriceText}" />
+												</StackPanel>
+											</StackPanel>
+										</Button>
+									</DataTemplate>
+								</ItemsRepeater.ItemTemplate>
+							</ItemsRepeater>
+						</StackPanel>
+
+						<!--  Windows system requirements, minimum next to recommended.  -->
+						<StackPanel Spacing="12" Visibility="{x:Bind ViewModel.HasRequirements, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+							<TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="System requirements" />
+							<Border
+								Padding="20"
+								Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+								BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+								BorderThickness="1"
+								CornerRadius="8">
+								<StackPanel Spacing="14">
+									<Grid ColumnSpacing="24">
+										<Grid.ColumnDefinitions>
+											<ColumnDefinition Width="*" />
+											<ColumnDefinition Width="*" />
+										</Grid.ColumnDefinitions>
+										<TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Minimum" />
+										<TextBlock
+											Grid.Column="1"
+											Style="{StaticResource BodyStrongTextBlockStyle}"
+											Text="Recommended" />
+									</Grid>
+									<ItemsRepeater ItemsSource="{x:Bind ViewModel.Requirements, Mode=OneWay}">
+										<ItemsRepeater.Layout>
+											<StackLayout Spacing="14" />
+										</ItemsRepeater.Layout>
+										<ItemsRepeater.ItemTemplate>
+											<DataTemplate x:DataType="models:StoreRequirement">
+												<Grid ColumnSpacing="24">
+													<Grid.ColumnDefinitions>
+														<ColumnDefinition Width="*" />
+														<ColumnDefinition Width="*" />
+													</Grid.ColumnDefinitions>
+													<StackPanel Spacing="2">
+														<TextBlock
+															Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+															Style="{StaticResource CaptionTextBlockStyle}"
+															Text="{x:Bind Title}" />
+														<TextBlock
+															IsTextSelectionEnabled="True"
+															Text="{x:Bind Minimum}"
+															TextWrapping="Wrap" />
+													</StackPanel>
+													<StackPanel Grid.Column="1" Spacing="2">
+														<TextBlock
+															Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+															Style="{StaticResource CaptionTextBlockStyle}"
+															Text="{x:Bind Title}" />
+														<TextBlock
+															IsTextSelectionEnabled="True"
+															Text="{x:Bind Recommended}"
+															TextWrapping="Wrap" />
+													</StackPanel>
+												</Grid>
+											</DataTemplate>
+										</ItemsRepeater.ItemTemplate>
+									</ItemsRepeater>
+								</StackPanel>
+							</Border>
+						</StackPanel>
+
+						<!--  Supported languages.  -->
+						<StackPanel Spacing="12" Visibility="{x:Bind ViewModel.HasAudioLanguages, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+							<TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Languages" />
+							<StackPanel Spacing="2">
+								<TextBlock
+									Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+									Style="{StaticResource CaptionTextBlockStyle}"
+									Text="Audio" />
+								<TextBlock Text="{x:Bind ViewModel.AudioLanguagesText, Mode=OneWay}" TextWrapping="Wrap" />
+							</StackPanel>
+							<StackPanel Spacing="2" Visibility="{x:Bind ViewModel.HasTextLanguages, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+								<TextBlock
+									Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+									Style="{StaticResource CaptionTextBlockStyle}"
+									Text="Text" />
+								<TextBlock Text="{x:Bind ViewModel.TextLanguagesText, Mode=OneWay}" TextWrapping="Wrap" />
+							</StackPanel>
 						</StackPanel>
 					</StackPanel>
 				</Grid>

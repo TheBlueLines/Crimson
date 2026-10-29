@@ -317,6 +317,11 @@ public sealed class StoreViewModelTests : IDisposable
 
 		public Task<StoreOfferReference?> ResolveProductSlugAsync(string productSlug, CancellationToken cancellationToken = default) =>
 			Task.FromResult(Slugs.GetValueOrDefault(productSlug));
+
+		public Dictionary<string, StoreProductPageInfo> ProductPages { get; } = new();
+
+		public Task<StoreProductPageInfo> GetProductPageAsync(string sandboxId, string? productSlug, CancellationToken cancellationToken = default) =>
+			Task.FromResult(ProductPages.GetValueOrDefault(sandboxId) ?? StoreProductPageInfo.Empty);
 	}
 
 	private sealed class OwnedGamesRepository(string[] catalogItemIds) : IStoreRepository

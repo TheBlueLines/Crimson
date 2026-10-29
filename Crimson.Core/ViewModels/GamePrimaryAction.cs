@@ -6,5 +6,6 @@ public enum GamePrimaryAction
 	Install,
 	Play,
 	Update,
-	Repair
+	Repair,
+	Stop
 }

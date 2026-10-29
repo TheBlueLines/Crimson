@@ -2,7 +2,9 @@
 using System.Threading.Tasks;
 using Crimson.Models;
 using Crimson.ViewModels;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Navigation;
 
 namespace Crimson.Views;
@@ -23,7 +25,20 @@ public sealed partial class StoreProductPage : Page
 		ViewModel.OpenWebStoreRequested += OpenWebStore;
 		ViewModel.InstallDialogRequested += ShowInstallDialog;
 		ViewModel.OpenInLibraryRequested += OpenInLibrary;
+		ViewModel.OpenProductRequested += OpenProduct;
+		ViewModel.OpenExternalLinkRequested += OpenExternalLink;
 	}
+
+	private void AddOn_Click(object sender, RoutedEventArgs e) =>
+		ViewModel.OpenAddOnCommand.Execute((sender as FrameworkElement)?.DataContext as StoreItem);
+
+	private void SocialLink_Click(object sender, RoutedEventArgs e) =>
+		ViewModel.OpenSocialLinkCommand.Execute((sender as FrameworkElement)?.DataContext as StoreSocialLink);
+
+	private void OpenProduct(StoreProductRequest request) =>
+		Frame.Navigate(typeof(StoreProductPage), request, new DrillInNavigationTransitionInfo());
+
+	private static async void OpenExternalLink(Uri uri) => await Windows.System.Launcher.LaunchUriAsync(uri);
 
 	protected override async void OnNavigatedTo(NavigationEventArgs e)
 	{

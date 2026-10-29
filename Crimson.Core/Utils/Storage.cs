@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Crimson.Core;
@@ -18,6 +19,7 @@ namespace Crimson.Utils
 		private readonly string MetaDataDirectory;
 		private readonly string SettingsDataFile;
 		private readonly string InstallationStateFile;
+		private readonly string InstallationStateDirectory;
 		private readonly string LocalAppStateFile;
 		private readonly string ManifestPath;
 
@@ -53,6 +55,7 @@ namespace Crimson.Utils
 			MetaDataDirectory = ResolveAppDataPath("metadata");
 			SettingsDataFile = ResolveAppDataPath("settings.json");
 			InstallationStateFile = ResolveAppDataPath("install_state.json");
+			InstallationStateDirectory = ResolveAppDataPath("install_states");
 			LocalAppStateFile = ResolveAppDataPath("localstate.json");
 			ManifestPath = ResolveAppDataPath("manifests");
 
@@ -63,8 +66,9 @@ namespace Crimson.Utils
 		{
 			try
 			{
-				Directory.CreateDirectory(MetaDataDirectory);
-				Directory.CreateDirectory(ManifestPath);
+			Directory.CreateDirectory(MetaDataDirectory);
+			Directory.CreateDirectory(ManifestPath);
+			Directory.CreateDirectory(InstallationStateDirectory);
 				_gameMetaDataDictionary = LoadMetadata();
 				_localAppStateDictionary = LoadLocalAppStates();
 			}
@@ -279,6 +283,68 @@ namespace Crimson.Utils
 			using var streamWriter = new StreamWriter(fileStream);
 			streamWriter.Write(data);
 			streamWriter.Close();
+		}
+
+		public void SaveInstallState(string appName, string data)
+		{
+			using var fileStream = File.Open(GetInstallationStateFile(appName), FileMode.Create, FileAccess.Write, FileShare.None);
+			using var streamWriter = new StreamWriter(fileStream);
+			streamWriter.Write(data);
+			streamWriter.Close();
+		}
+
+		public string? GetInstallState(string appName)
+		{
+			var path = GetInstallationStateFile(appName);
+			if (!File.Exists(path))
+				return null;
+
+			using var fileStream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+			using var streamReader = new StreamReader(fileStream);
+			var data = streamReader.ReadToEnd();
+			fileStream.Close();
+			return data;
+		}
+
+		public void DeleteInstallState(string appName)
+		{
+			try
+			{
+				File.Delete(GetInstallationStateFile(appName));
+			}
+			catch (Exception ex)
+			{
+				_logger.Warning(ex, "Failed to remove the saved install state for {AppName}", appName);
+			}
+		}
+
+		public IEnumerable<string> EnumerateInstallStates()
+		{
+			if (!Directory.Exists(InstallationStateDirectory))
+				yield break;
+
+			foreach (var file in Directory.EnumerateFiles(InstallationStateDirectory, "*.json").OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+			{
+				string data;
+				try
+				{
+					data = File.ReadAllText(file);
+				}
+				catch (Exception ex)
+				{
+					_logger.Warning(ex, "Failed to read saved install state {File}", file);
+					continue;
+				}
+
+				if (!string.IsNullOrEmpty(data))
+					yield return data;
+			}
+		}
+
+		private string GetInstallationStateFile(string appName)
+		{
+			ArgumentException.ThrowIfNullOrWhiteSpace(appName);
+			return Path.Combine(InstallationStateDirectory, Uri.EscapeDataString(appName) + ".json");
 		}
 
 		public string GetInstallState()

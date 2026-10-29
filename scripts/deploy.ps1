@@ -15,12 +15,17 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $pfn = 'Foxtrot47.CrimsonLauncher_t4mcqp6q26c0g'
-$stateFile = Join-Path $env:LOCALAPPDATA 'Crimson\localstate.json'
+# Packaged builds keep their data in the package's LocalState; older ones used %LOCALAPPDATA%\Crimson.
+$stateFiles = @(
+    (Join-Path $env:LOCALAPPDATA "Packages\$pfn\LocalState\localstate.json"),
+    (Join-Path $env:LOCALAPPDATA 'Crimson\localstate.json')
+)
 
 $busy = @{ 1 = 'Installing'; 6 = 'Repairing'; 8 = 'Updating' }
 
 function Test-DownloadActive {
-    if (-not (Test-Path $stateFile)) { return $null }
+    $stateFile = $stateFiles | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $stateFile) { return $null }
     $raw = Get-Content $stateFile -Raw
 
     foreach ($m in [regex]::Matches($raw, '"install_status"\s*:\s*(\d+)')) {
@@ -63,14 +68,31 @@ $pkg = Get-ChildItem (Join-Path $repo 'artifacts\msix-test') -Recurse -Filter *.
        Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $pkg) { Write-Host 'no .msix produced' -ForegroundColor Red; exit 1 }
 
+# Removing the package deletes its LocalState (library, installs, sign-in), so carry it across.
+$localState = Join-Path $env:LOCALAPPDATA "Packages\$pfn\LocalState"
+$backup = $null
 $existing = Get-AppxPackage -Name 'Foxtrot47.CrimsonLauncher'
 if ($existing) {
+    Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$($existing.InstallLocation)*" } | Stop-Process -Force
+    if (Test-Path $localState) {
+        $backup = Join-Path ([IO.Path]::GetTempPath()) "crimson-localstate-$(Get-Date -Format yyyyMMddHHmmss)"
+        Write-Host "==> backing up app data to $backup" -ForegroundColor Cyan
+        robocopy $localState $backup /E /XD cache webview2 /NFL /NDL /NJH /NJS /NP | Out-Null
+        if ($LASTEXITCODE -ge 8) { Write-Host 'BACKUP FAILED; leaving the installed package alone' -ForegroundColor Red; exit 1 }
+    }
     Write-Host "==> removing $($existing.PackageFullName)" -ForegroundColor Cyan
     Remove-AppxPackage -Package $existing.PackageFullName
 }
 
 Write-Host "==> installing $($pkg.Name)" -ForegroundColor Cyan
 Add-AppxPackage -Path $pkg.FullName -ForceApplicationShutdown
+
+if ($backup) {
+    Write-Host '==> restoring app data' -ForegroundColor Cyan
+    robocopy $backup $localState /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { Write-Host "RESTORE FAILED; app data is still in $backup" -ForegroundColor Red; exit 1 }
+    Remove-Item $backup -Recurse -Force
+}
 
 $installed = Get-AppxPackage -Name 'Foxtrot47.CrimsonLauncher'
 Write-Host "==> installed $($installed.PackageFullName)" -ForegroundColor Green
@@ -79,3 +101,5 @@ if (-not $NoLaunch) {
     Start-Process "shell:AppsFolder\$pfn!App"
     Write-Host '==> launched' -ForegroundColor Green
 }
+# robocopy leaves non-zero success codes behind.
+exit 0

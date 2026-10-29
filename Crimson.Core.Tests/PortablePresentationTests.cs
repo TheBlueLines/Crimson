@@ -19,6 +19,15 @@ public sealed class PortablePresentationTests
 		Assert.Equal(expected, GameInfoViewModel.GetPrimaryAction(installState));
 	}
 
+	[Theory]
+	[InlineData(InstallState.Installed, GamePrimaryAction.Stop)]
+	[InlineData(InstallState.NeedUpdate, GamePrimaryAction.Stop)]
+	[InlineData(InstallState.Broken, GamePrimaryAction.Repair)]
+	public void RunningGameOffersStop(InstallState installState, GamePrimaryAction expected)
+	{
+		Assert.Equal(expected, GameInfoViewModel.GetPrimaryAction(installState, isRunning: true));
+	}
+
 	[Fact]
 	public void InstallArtworkPrefersTallImage()
 	{

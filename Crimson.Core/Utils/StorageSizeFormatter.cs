@@ -1,4 +1,6 @@
-﻿namespace Crimson.Utils;
+﻿using System.Globalization;
+
+namespace Crimson.Utils;
 
 public static class StorageSizeFormatter
 {
@@ -6,7 +8,10 @@ public static class StorageSizeFormatter
 	{
 		var gibibytes = mebibytes / 1024;
 		return gibibytes >= 1
-			? $"{gibibytes:F2} GiB"
-			: $"{mebibytes:F2} MiB";
+			? $"{gibibytes.ToString("F2", CultureInfo.InvariantCulture)} GB"
+			: $"{mebibytes.ToString("F2", CultureInfo.InvariantCulture)} MB";
 	}
+
+	public static string FormatSpeed(double mebibytesPerSecond) =>
+		$"{mebibytesPerSecond.ToString("F1", CultureInfo.InvariantCulture)} MB/s";
 }

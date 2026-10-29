@@ -24,6 +24,15 @@ public interface IStoreCatalog
 		string offerId,
 		CancellationToken cancellationToken = default);
 
+	/// <summary>
+	/// The rest of the web product page (gallery, requirements, ratings, add-ons) for the
+	/// product whose sandbox is <paramref name="sandboxId"/> (an offer's namespace).
+	/// </summary>
+	public Task<StoreProductPageInfo> GetProductPageAsync(
+		string sandboxId,
+		string? productSlug,
+		CancellationToken cancellationToken = default);
+
 	public Task<StoreOfferReference?> ResolveProductSlugAsync(
 		string productSlug,
 		CancellationToken cancellationToken = default);

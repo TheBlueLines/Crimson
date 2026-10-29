@@ -2,23 +2,24 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Crimson.Core;
 using Crimson.Models;
 using Crimson.Repository;
 using Crimson.Utils;
-using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Navigation;
 using Serilog;
-using WinRT;
+using Windows.Storage;
+using Windows.Storage.FileProperties;
 
 namespace Crimson.Views;
 
@@ -39,6 +40,13 @@ public sealed partial class MainWindow : Window
 		"NavigationViewItemBackgroundSelectedPressed"
 	];
 
+	// Only the docked pane is see-through; the overlay pane (compact/minimal) keeps its acrylic
+	// so it stays readable over the page it covers.
+	private static readonly string[] PaneBackgroundKeys =
+	[
+		"NavigationViewExpandedPaneBackground"
+	];
+
 	private const string GameNavTagPrefix = "game:";
 
 	public bool IsLoggedIn;
@@ -47,15 +55,23 @@ public sealed partial class MainWindow : Window
 	private readonly InstallManager _installManager;
 	private readonly LibraryManager _libraryManager;
 	private readonly IStoreCatalog _storeCatalog;
+	private readonly SettingsManager _settingsManager;
 
 	private List<Game> _libraryCache = new();
 	private CancellationTokenSource? _storeSearchCancellation;
 	private string? _currentGameAppName;
 
-	private List<(string AppName, string AppTitle, InstallState? Status)> _installedMenuSnapshot = [];
+	private Brush? _contentBackground;
+	private readonly SolidColorBrush _transparentChromeBrush = new(Microsoft.UI.Colors.Transparent);
+	// 65% black: Settings' and the search results' background when acrylic is off.
+	private readonly SolidColorBrush _dimBackgroundBrush = new(Windows.UI.Color.FromArgb(0xA6, 0x00, 0x00, 0x00));
+
+	private List<(string AppName, string AppTitle, InstallState? Status, bool IsRunning)> _installedMenuSnapshot = [];
 	private string? _installedMenuActiveAppName;
+	private List<string> _installedMenuSuspended = [];
 
 	private readonly Dictionary<string, GameNavEntry> _gameNavEntries = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, Task<ImageSource?>> _executableIcons = new(StringComparer.OrdinalIgnoreCase);
 	private InstallItem? _activeInstall;
 	private string? _decoratedAppName;
 	private DownloadSummary? _lastDownloadSummary;
@@ -87,22 +103,32 @@ public sealed partial class MainWindow : Window
 		public Visibility SkeletonVisibility { get; init; } = Visibility.Collapsed;
 	}
 
-	WindowsSystemDispatcherQueueHelper _mWsdqHelper;
-	MicaController _mBackdropController;
-	SystemBackdropConfiguration _mConfigurationSource;
 
 	public MainWindow()
 	{
 		InitializeComponent();
 		SetWindowIcon();
+
+		_contentBackground = ContentFrame.Background;
+		foreach (var key in PaneBackgroundKeys)
+			NavControl.Resources[key] = _transparentChromeBrush;
+		ContentFrame.Navigating += ContentFrame_Navigating;
+
 		_taskbarProgress = TaskbarProgress.TryCreate(this);
 
-		// Disable setting mica as default
-		// We will config later when we do configuration manager
-		TrySetSystemBackdrop();
+		_settingsManager = App.GetService<SettingsManager>();
+		_settingsManager.AcrylicEnabledChanged += OnAcrylicEnabledChanged;
+		this.Closed += Window_Closed;
+		ApplyWindowBackdrop();
+		ApplyAcrylicBlurs();
 		ExtendsContentIntoTitleBar = true;
 		SetTitleBar(AppTitleBar);
-		GlobalSearchBox.Loaded += (_, _) => UpdateTitleBarInteractiveRegion();
+		StyleCaptionButtons();
+		GlobalSearchBox.Loaded += (_, _) =>
+		{
+			UpdateTitleBarInteractiveRegion();
+			ApplySearchResultsBackground();
+		};
 		GlobalSearchBox.SizeChanged += (_, _) => UpdateTitleBarInteractiveRegion();
 
 		_authManager = App.GetService<AuthManager>();
@@ -116,15 +142,39 @@ public sealed partial class MainWindow : Window
 		CurrentDownload.SummaryChanged += OnDownloadSummaryChanged;
 		_installManager.InstallationStatusChanged += InstallationStatusChangedHandler;
 		_installManager.InstallProgressUpdate += InstallProgressUpdateHandler;
-		NavControl.PaneOpened += (_, _) => UpdateBadgeVisibility();
-		NavControl.PaneClosed += (_, _) => UpdateBadgeVisibility();
-		NavControl.DisplayModeChanged += (_, _) => UpdateBadgeVisibility();
+		NavControl.PaneOpening += (_, _) => UpdatePaneBlurWidth();
+		NavControl.PaneClosing += (_, _) => UpdatePaneBlurWidth();
+		NavControl.PaneOpened += (_, _) => UpdatePaneDownloadState();
+		NavControl.PaneClosed += (_, _) => UpdatePaneDownloadState();
+		NavControl.DisplayModeChanged += (_, _) =>
+		{
+			UpdatePaneBlurWidth();
+			UpdatePaneDownloadState();
+		};
 		CurrentDownload.PublishCurrentSummary();
 		_activeInstall = IsActionRunning(_installManager.CurrentInstall) ? _installManager.CurrentInstall : null;
 		RebuildInstalledMenu();
 
 		IsLoggedIn = false;
 		_authManager.AuthStatusChanged += AuthStatusChangedHandler;
+	}
+
+	/// <summary>
+	/// Square caption buttons that sit on the backdrop like Fluent Launcher's: the tall title bar
+	/// makes them 48px high, and minimize/maximize only lighten on hover. Close keeps the system red.
+	/// </summary>
+	private void StyleCaptionButtons()
+	{
+		var titleBar = AppWindow.TitleBar;
+		titleBar.PreferredHeightOption = Microsoft.UI.Windowing.TitleBarHeightOption.Tall;
+		titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
+		titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
+		titleBar.ButtonHoverBackgroundColor = Windows.UI.Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF);
+		titleBar.ButtonPressedBackgroundColor = Windows.UI.Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF);
+		titleBar.ButtonForegroundColor = Microsoft.UI.Colors.White;
+		titleBar.ButtonHoverForegroundColor = Microsoft.UI.Colors.White;
+		titleBar.ButtonPressedForegroundColor = Microsoft.UI.Colors.White;
+		titleBar.ButtonInactiveForegroundColor = Windows.UI.Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF);
 	}
 
 	private void SetWindowIcon()
@@ -177,10 +227,77 @@ public sealed partial class MainWindow : Window
 				(int)Math.Round(bounds.Height * scale))]);
 	}
 
+	/// <summary>
+	/// The results popup is its own window (AutoSuggestBox resets ShouldConstrainToRootBounds on
+	/// open, and changing it afterwards throws), and Windows draws no backdrop behind it. Its list
+	/// stays transparent over SearchResultsBlur, which blurs the page in the main window. With
+	/// acrylic off, the list brush the template draws with turns 65% black instead.
+	/// </summary>
+	private void ApplySearchResultsBackground()
+	{
+		if (GlobalSearchBox.Resources["AutoSuggestBoxSuggestionsListBackground"] is SolidColorBrush listBrush)
+			listBrush.Color = _settingsManager.AcrylicEnabled ? Microsoft.UI.Colors.Transparent : _dimBackgroundBrush.Color;
+
+		if (_searchResultsPopup is null &&
+			FindDescendant<Popup>(GlobalSearchBox, "SuggestionsPopup") is { Child: FrameworkElement container } popup)
+		{
+			_searchResultsPopup = popup;
+			popup.Opened += (_, _) => UpdateSearchResultsBlur();
+			popup.Closed += (_, _) => UpdateSearchResultsBlur();
+			container.SizeChanged += (_, _) => UpdateSearchResultsBlur();
+		}
+
+		UpdateSearchResultsBlur();
+	}
+
+	private Popup? _searchResultsPopup;
+
+	private void UpdateSearchResultsBlur()
+	{
+		if (_searchResultsPopup is not { IsOpen: true, Child: FrameworkElement container } ||
+			!_settingsManager.AcrylicEnabled ||
+			container.ActualHeight <= 0 ||
+			Content is not UIElement root)
+		{
+			SearchResultsBlur.Visibility = Visibility.Collapsed;
+			return;
+		}
+
+		// The results open right under the search box, at its width.
+		var origin = GlobalSearchBox.TransformToVisual(root)
+			.TransformPoint(new Windows.Foundation.Point(0, GlobalSearchBox.ActualHeight));
+		try
+		{
+			origin = container.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point(0, 0));
+		}
+		catch (ArgumentException)
+		{
+		}
+		SearchResultsBlur.Margin = new Thickness(origin.X, origin.Y, 0, 0);
+		SearchResultsBlur.Width = container.ActualWidth;
+		SearchResultsBlur.Height = container.ActualHeight;
+		SearchResultsBlur.Visibility = Visibility.Visible;
+	}
+
+	private static T? FindDescendant<T>(DependencyObject root, string name) where T : FrameworkElement
+	{
+		for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+		{
+			var child = VisualTreeHelper.GetChild(root, i);
+			if (child is T match && match.Name == name)
+				return match;
+			if (FindDescendant<T>(child, name) is { } found)
+				return found;
+		}
+
+		return null;
+	}
+
 	private void GlobalSearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
 	{
 		if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
 			BeginSearch(sender.Text);
+		ApplySearchResultsBackground();
 	}
 
 	private void BeginSearch(string value)
@@ -403,7 +520,9 @@ public sealed partial class MainWindow : Window
 			return;
 		}
 
-		NavControl_Navigate(Type.GetType(tag), args.RecommendedNavigationTransitionInfo);
+		var pageType = Type.GetType(tag);
+		if (pageType is not null)
+			NavControl_Navigate(pageType, args.RecommendedNavigationTransitionInfo);
 	}
 
 	private void NavigateToGame(string appName, NavigationTransitionInfo transitionInfo)
@@ -414,6 +533,78 @@ public sealed partial class MainWindow : Window
 
 		_currentGameAppName = appName;
 		ContentFrame.Navigate(typeof(GameInfoPage), appName, transitionInfo);
+	}
+
+	private void ContentFrame_Navigating(object sender, NavigatingCancelEventArgs e)
+	{
+		if (e.SourcePageType == typeof(GameInfoPage) && e.Parameter is string appName)
+			ShowGameBackground(GameArtwork.SelectBackgroundUrl(_libraryManager.GetGameInfo(appName)));
+		else
+			HideGameBackground();
+
+		if (e.SourcePageType == typeof(SettingsPage))
+			ContentFrame.Background = SettingsBackground;
+	}
+
+	private void ShowGameBackground(string? imageUrl)
+	{
+		GameBackgroundBrush.ImageSource = CreateGameBackgroundImage(imageUrl);
+		GameBackgroundLayer.Visibility = Visibility.Visible;
+		UpdatePaneBlurWidth();
+
+		// Let the artwork run behind the page and the title bar above it.
+		ContentFrame.Background = _transparentChromeBrush;
+	}
+
+	/// <summary>
+	/// Sizes the blur behind the docked pane (which is see-through) to the pane's width. An
+	/// overlay pane (compact/minimal) brings its own acrylic, so only its closed strip is blurred.
+	/// </summary>
+	private void UpdatePaneBlurWidth()
+	{
+		var inset = NavControl.DisplayMode switch
+		{
+			NavigationViewDisplayMode.Expanded => NavControl.IsPaneOpen
+				? NavControl.OpenPaneLength
+				: NavControl.CompactPaneLength,
+			NavigationViewDisplayMode.Compact => NavControl.CompactPaneLength,
+			_ => 0
+		};
+		PaneBlur.Width = inset;
+	}
+
+	/// <summary>
+	/// The pane and search pill blurs follow the acrylic setting; with it off they stay see-through.
+	/// </summary>
+	private Brush? SettingsBackground => _settingsManager.AcrylicEnabled ? _contentBackground : _dimBackgroundBrush;
+
+	private void ApplyAcrylicBlurs()
+	{
+		var visibility = _settingsManager.AcrylicEnabled ? Visibility.Visible : Visibility.Collapsed;
+		PaneBlur.Visibility = visibility;
+		SearchBlur.Visibility = visibility;
+	}
+
+	private void HideGameBackground()
+	{
+		GameBackgroundBrush.ImageSource = null;
+		GameBackgroundLayer.Visibility = Visibility.Collapsed;
+
+		ContentFrame.Background = _contentBackground;
+	}
+
+	private static ImageSource? CreateGameBackgroundImage(string? imageUrl)
+	{
+		if (!Uri.TryCreate(imageUrl, UriKind.Absolute, out var uri) ||
+			!uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+			return null;
+
+		return new BitmapImage
+		{
+			DecodePixelType = DecodePixelType.Logical,
+			DecodePixelWidth = 2560,
+			UriSource = uri
+		};
 	}
 
 	private void LibraryUpdatedHandler(IEnumerable<Game> games)
@@ -448,21 +639,45 @@ public sealed partial class MainWindow : Window
 	private void RebuildInstalledMenu(bool force = false)
 	{
 		var activeAppName = _activeInstall?.AppName;
-		var installed = _libraryCache
+		// Installs pushed off the pipeline by another download are not "installed" yet, so their
+		// local state never marks them paused; list them explicitly so they stay in the pane.
+		var suspended = _installManager.SuspendedInstalls
+			.Where(item => !string.Equals(item.AppName, activeAppName, StringComparison.Ordinal))
+			.GroupBy(item => item.AppName, StringComparer.Ordinal)
+			.ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+
+		var games = new List<Game>(_libraryCache);
+		foreach (var appName in suspended.Keys.Prepend(activeAppName))
+		{
+			if (appName is null ||
+				games.Any(game => string.Equals(game.AppName, appName, StringComparison.Ordinal)))
+				continue;
+			var game = _libraryManager.GetGameInfo(appName);
+			if (game?.Metadata is not null && !game.IsDlc())
+				games.Add(game);
+		}
+
+		var installed = games
 			.Where(game => game.Metadata is not null && !game.IsDlc())
-			.Where(game => IsPaneListed(game, activeAppName))
+			.Where(game => IsPaneListed(game, activeAppName) || suspended.ContainsKey(game.AppName))
 			.OrderBy(game => game.AppTitle, StringComparer.CurrentCultureIgnoreCase)
 			.ToList();
 
 		var snapshot = installed
-			.Select(game => (game.AppName, game.AppTitle, game.LocalAppState?.InstallStatus))
+			.Select(game => (game.AppName, game.AppTitle, game.LocalAppState?.InstallStatus,
+				_libraryManager.IsAppRunning(game.AppName)))
 			.ToList();
+		var suspendedNames = suspended.Keys.Order(StringComparer.Ordinal).ToList();
 		if (!force && snapshot.SequenceEqual(_installedMenuSnapshot) &&
+			suspendedNames.SequenceEqual(_installedMenuSuspended) &&
 			string.Equals(activeAppName, _installedMenuActiveAppName, StringComparison.Ordinal))
 			return;
 		_installedMenuSnapshot = snapshot;
+		_installedMenuSuspended = suspendedNames;
 		_installedMenuActiveAppName = activeAppName;
 		_gameNavEntries.Clear();
+		// Rebuilt entries start undecorated; resetting the old one would wipe a suspended visual.
+		_decoratedAppName = null;
 
 		for (var i = NavControl.MenuItems.Count - 1; i >= 0; i--)
 		{
@@ -472,9 +687,28 @@ public sealed partial class MainWindow : Window
 		}
 
 		foreach (var game in installed)
-			NavControl.MenuItems.Add(CreateInstalledGameItem(game));
+			NavControl.MenuItems.Add(CreateInstalledGameItem(game, suspended.ContainsKey(game.AppName)));
+
+		foreach (var item in suspended.Values)
+			ApplySuspendedVisual(item);
 
 		ApplyInstallVisual(_activeInstall);
+	}
+
+	private void ApplySuspendedVisual(InstallItem installItem)
+	{
+		if (!_gameNavEntries.TryGetValue(installItem.AppName, out var target))
+			return;
+
+		var percent = Math.Clamp(installItem.ProgressPercentage, 0, 100);
+		var label = CurrentDownloadControl.GetActionLabel(installItem.Action);
+
+		target.PlayButton.Visibility = Visibility.Collapsed;
+		target.StatusPanel.Visibility = Visibility.Visible;
+		target.ActionIcon.Glyph = GetActionGlyph(installItem.Action, ActionStatus.Paused);
+		target.ProgressText.Text = $"{percent}%";
+		SetProgressFill(target.ProgressBrush, percent);
+		ToolTipService.SetToolTip(target.Item, $"{target.Title} - {label} paused at {percent}%");
 	}
 
 	private static bool IsPaneListed(Game game, string? activeAppName) =>
@@ -484,12 +718,14 @@ public sealed partial class MainWindow : Window
 			or InstallState.Updating or InstallState.UpdatingPaused
 			or InstallState.Repairing;
 
-	private NavigationViewItem CreateInstalledGameItem(Game game)
+	private NavigationViewItem CreateInstalledGameItem(Game game, bool isSuspended = false)
 	{
 		var appName = game.AppName;
 		var title = string.IsNullOrWhiteSpace(game.AppTitle) ? appName : game.AppTitle;
-		var canLaunch = game.LocalAppState?.InstallStatus is InstallState.Installed or InstallState.NeedUpdate;
-		var isActive = string.Equals(appName, _activeInstall?.AppName, StringComparison.Ordinal);
+		var canLaunch = !isSuspended &&
+			game.LocalAppState?.InstallStatus is InstallState.Installed or InstallState.NeedUpdate;
+		var isActive = isSuspended || string.Equals(appName, _activeInstall?.AppName, StringComparison.Ordinal);
+		var isRunning = canLaunch && _libraryManager.IsAppRunning(appName);
 
 		var titleBlock = new TextBlock
 		{
@@ -519,16 +755,25 @@ public sealed partial class MainWindow : Window
 
 		var playButton = new Button
 		{
-			Content = new FontIcon { Glyph = "\uE768", FontSize = 12 },
-			Padding = new Thickness(6, 0, 6, 0),
+			Content = new FontIcon { Glyph = isRunning ? "\uE71A" : "\uE768", FontSize = 16 },
+			Width = 40,
+			Height = 40,
+			Padding = new Thickness(0),
+			CornerRadius = new CornerRadius(6),
 			Margin = new Thickness(4, 0, 0, 0),
 			VerticalAlignment = VerticalAlignment.Center,
 			Visibility = canLaunch ? Visibility.Visible : Visibility.Collapsed,
 			Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
 			BorderThickness = new Thickness(0)
 		};
-		ToolTipService.SetToolTip(playButton, $"Play {title}");
-		playButton.Click += (_, _) => LaunchGame(appName, title);
+		ToolTipService.SetToolTip(playButton, isRunning ? $"Stop {title}" : $"Play {title}");
+		playButton.Click += (_, _) =>
+		{
+			if (_libraryManager.IsAppRunning(appName))
+				StopGame(appName, title);
+			else
+				LaunchGame(appName, title);
+		};
 		playButton.Tapped += (_, e) => e.Handled = true;
 		Grid.SetColumn(playButton, 2);
 
@@ -579,7 +824,17 @@ public sealed partial class MainWindow : Window
 	{
 		DispatcherQueue.TryEnqueue(() =>
 		{
-			_activeInstall = IsActionRunning(installItem) ? installItem : null;
+			// Status events can come from games that were pushed into the paused list; the active
+			// visuals always mirror the install that currently owns the pipeline. A queued install
+			// is mirrored too, otherwise newly-started downloads stay out of the pane until the
+			// pipeline finishes preparing their manifest.
+			var current = _installManager.CurrentInstall
+				?? (installItem?.Status is ActionStatus.Pending
+					or ActionStatus.Processing
+					or ActionStatus.Cancelling
+					? installItem
+					: null);
+			_activeInstall = IsActionRunning(current) ? current : null;
 			RebuildInstalledMenu();
 			ApplyInstallVisual(_activeInstall);
 		});
@@ -617,6 +872,18 @@ public sealed partial class MainWindow : Window
 		target.PlayButton.Visibility = Visibility.Collapsed;
 		target.StatusPanel.Visibility = Visibility.Visible;
 		target.ActionIcon.Glyph = GetActionGlyph(installItem.Action, installItem.Status);
+
+		if (installItem.IsVerifying)
+		{
+			// Progress is unknown until the disk check finishes, so no percentage is shown.
+			target.ProgressText.Text = "Checking";
+			target.Badge.Value = -1;
+			UpdateBadgeVisibility();
+			SetProgressFill(target.ProgressBrush, 0);
+			ToolTipService.SetToolTip(target.Item, $"{target.Title} - checking files");
+			return;
+		}
+
 		target.ProgressText.Text = $"{percent}%";
 
 		target.Badge.Value = percent;
@@ -637,6 +904,12 @@ public sealed partial class MainWindow : Window
 		if (installItem is null || !IsActionRunning(installItem))
 		{
 			_taskbarProgress.Clear();
+			return;
+		}
+
+		if (installItem.IsVerifying)
+		{
+			_taskbarProgress.SetIndeterminate();
 			return;
 		}
 
@@ -712,7 +985,80 @@ public sealed partial class MainWindow : Window
 		brush.GradientStops[2].Offset = offset;
 	}
 
-	private static IconElement? CreateGameIcon(Game game)
+	private IconElement? CreateGameIcon(Game game)
+	{
+		var executable = GetExecutablePath(game);
+		if (executable is null)
+			return CreateBoxArtIcon(game);
+
+		// The pane is rebuilt often, so the icon is filled in once the executable's icon is read.
+		var icon = new ImageIcon { Width = GameIconBoxHeight, Height = GameIconBoxHeight };
+		_ = LoadExecutableIconAsync(icon, executable, game);
+		return icon;
+	}
+
+	private static string? GetExecutablePath(Game game)
+	{
+		var state = game.LocalAppState;
+		if (state?.InstallStatus is not (InstallState.Installed or InstallState.NeedUpdate) ||
+			string.IsNullOrWhiteSpace(state.InstallPath) || string.IsNullOrWhiteSpace(state.Executable))
+			return null;
+
+		try
+		{
+			return InstallPathPolicy.ResolveFile(state.InstallPath, state.Executable);
+		}
+		catch (Exception)
+		{
+			return null;
+		}
+	}
+
+	private async Task LoadExecutableIconAsync(ImageIcon icon, string executable, Game game)
+	{
+		if (!_executableIcons.TryGetValue(executable, out var load))
+			_executableIcons[executable] = load = ReadExecutableIconAsync(executable);
+
+		var source = await load;
+		if (source is null)
+		{
+			// Not cached, so an icon that becomes readable later (e.g. after a repair) is picked up.
+			_executableIcons.Remove(executable);
+			source = CreateBoxArtSource(game);
+		}
+		icon.Source = source;
+	}
+
+	private async Task<ImageSource?> ReadExecutableIconAsync(string executable)
+	{
+		try
+		{
+			var file = await StorageFile.GetFileFromPathAsync(executable);
+			using var thumbnail = await file.GetThumbnailAsync(
+				ThumbnailMode.SingleItem, GameIconBoxHeight * 2, ThumbnailOptions.ResizeThumbnail);
+			if (thumbnail is null || thumbnail.Size == 0)
+				return null;
+
+			var bitmap = new BitmapImage();
+			await bitmap.SetSourceAsync(thumbnail);
+			return bitmap;
+		}
+		catch (Exception ex)
+		{
+			_log.Warning(ex, "MainWindow: Failed to read the icon of {Executable}", executable);
+			return null;
+		}
+	}
+
+	private static IconElement? CreateBoxArtIcon(Game game)
+	{
+		var source = CreateBoxArtSource(game);
+		return source is null
+			? null
+			: new ImageIcon { Source = source, Width = GameIconBoxHeight, Height = GameIconBoxHeight };
+	}
+
+	private static ImageSource? CreateBoxArtSource(Game game)
 	{
 		var keyImages = game.Metadata?.KeyImages;
 		if (keyImages is null) return null;
@@ -728,8 +1074,7 @@ public sealed partial class MainWindow : Window
 			DecodePixelHeight = GameIconBoxHeight * 2
 		};
 		bitmap.UriSource = new Uri(url);
-
-		return new ImageIcon { Source = bitmap, Width = GameIconBoxHeight, Height = GameIconBoxHeight };
+		return bitmap;
 	}
 
 	private void LaunchGame(string appName, string title)
@@ -738,12 +1083,47 @@ public sealed partial class MainWindow : Window
 		_ = Task.Run(() => _libraryManager.LaunchApp(appName));
 	}
 
+	private void StopGame(string appName, string title)
+	{
+		_log.Information("MainWindow: Stopping {Title} ({AppName}) from the navigation pane", title, appName);
+		_ = Task.Run(() => _libraryManager.StopApp(appName));
+	}
+
 	private void OnDownloadSummaryChanged(DownloadSummary summary)
 	{
 		_lastDownloadSummary = summary;
 		ToolTipService.SetToolTip(DownloadsNavItem, summary.ToolTip);
-		DownloadInfoBadge.Value = summary.ProgressPercentage;
+		DownloadInfoBadge.Value = summary.IsVerifying ? -1 : summary.ProgressPercentage;
+		UpdatePaneDownloadState();
+	}
+
+	private void UpdatePaneDownloadState()
+	{
+		UpdateDownloadsNavItems();
 		UpdateBadgeVisibility();
+	}
+
+	/// <summary>
+	/// While a download is active and the pane is open, the progress item already names the game,
+	/// so it replaces the Downloads item: it opens the Downloads page and carries the selection.
+	/// A collapsed pane hides the progress item's content, so the Downloads icon comes back there.
+	/// </summary>
+	private void UpdateDownloadsNavItems()
+	{
+		var showProgress = NavControl.IsPaneOpen && _lastDownloadSummary is { HasActiveDownload: true };
+		var downloadsSelected = ReferenceEquals(NavControl.SelectedItem, DownloadsNavItem) ||
+			ReferenceEquals(NavControl.SelectedItem, CurrentDownloadNavItem);
+
+		DownloadsNavItem.Visibility = showProgress ? Visibility.Collapsed : Visibility.Visible;
+		// Finished, failed or cancelled actions are listed on the Downloads page; the pane only
+		// shows the progress item while something is actually downloading.
+		CurrentDownloadNavItem.Visibility = showProgress ? Visibility.Visible : Visibility.Collapsed;
+		CurrentDownloadNavItem.Tag = showProgress ? DownloadsNavItem.Tag : null;
+		CurrentDownloadNavItem.SelectsOnInvoked = showProgress;
+		CurrentDownloadNavItem.IsTabStop = showProgress;
+
+		if (downloadsSelected)
+			NavControl.SelectedItem = showProgress ? CurrentDownloadNavItem : DownloadsNavItem;
 	}
 
 	private void UpdateBadgeVisibility()
@@ -773,6 +1153,12 @@ public sealed partial class MainWindow : Window
 	private void UpdateUIBasedOnAuthenticationStatus(AuthenticationStatus authStatus)
 	{
 		Log.Information("Auth status: {AuthStatus}", authStatus);
+
+		// Sign-in covers the whole window, so the title bar search only appears once logged in.
+		GlobalSearchBox.Visibility = authStatus == AuthenticationStatus.LoggedIn
+			? Visibility.Visible
+			: Visibility.Collapsed;
+		UpdateTitleBarInteractiveRegion();
 
 		switch (authStatus)
 		{
@@ -809,19 +1195,7 @@ public sealed partial class MainWindow : Window
 				NavControl_Navigate(typeof(LibraryPage), new EntranceNavigationTransitionInfo());
 				Log.Information("Opening Library Page");
 
-				_installManager.LoadPendingInstalls();
-
-				Task.Run(async () =>
-				{
-					try
-					{
-						await _libraryManager.GetLibraryData();
-					}
-					catch (Exception ex)
-					{
-						_log.Error(ex, "MainWindow: could not load the installed games list");
-					}
-				});
+				_ = RestorePendingInstallAsync();
 				break;
 
 			case AuthenticationStatus.LoginFailed:
@@ -838,49 +1212,64 @@ public sealed partial class MainWindow : Window
 	{
 		DispatcherQueue.TryEnqueue(() => UpdateUIBasedOnAuthenticationStatus(e.NewStatus));
 	}
-	private bool TrySetSystemBackdrop()
+
+	/// <summary>
+	/// Loads the library first so game titles and install locations are available, then
+	/// restores the saved download. The restore compares against the manifest and hashes
+	/// every file, so it must not compete with the library refresh.
+	/// </summary>
+	private async Task RestorePendingInstallAsync()
 	{
-		if (!MicaController.IsSupported())
-			return false; // Mica is not supported on this system
-		_mWsdqHelper = new WindowsSystemDispatcherQueueHelper();
-		_mWsdqHelper.EnsureWindowsSystemDispatcherQueueController();
+		try
+		{
+			await _libraryManager.GetLibraryData();
+		}
+		catch (Exception ex)
+		{
+			_log.Error(ex, "MainWindow: could not load the installed games list");
+		}
 
-		// Create the policy object.
-		_mConfigurationSource = new SystemBackdropConfiguration();
-		this.Activated += Window_Activated;
-		this.Closed += Window_Closed;
-		((FrameworkElement)this.Content).ActualThemeChanged += Window_ThemeChanged;
+		try
+		{
+			await _installManager.LoadPendingInstalls();
+		}
+		catch (Exception ex)
+		{
+			_log.Error(ex, "MainWindow: could not restore the pending download");
+		}
 
-		// Initial configuration state.
-		_mConfigurationSource.IsInputActive = true;
-		SetConfigurationSourceTheme();
-
-		_mBackdropController = new MicaController();
-
-		// Enable the system backdrop.
-		// Note: Be sure to have "using WinRT;" to support the Window.As<...>() call.
-		_mBackdropController.AddSystemBackdropTarget(this.As<Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop>());
-		_mBackdropController.SetSystemBackdropConfiguration(_mConfigurationSource);
-		return true; // succeeded
-
+		CurrentDownload.PublishCurrentSummary();
+	}
+	private void OnAcrylicEnabledChanged(bool enabled)
+	{
+		ApplyWindowBackdrop();
+		ApplyAcrylicBlurs();
+		ApplySearchResultsBackground();
+		if (ContentFrame.Content is SettingsPage)
+			ContentFrame.Background = SettingsBackground;
 	}
 
-	private void Window_Activated(object sender, WindowActivatedEventArgs args)
+	/// <summary>
+	/// The window blurs the desktop behind it with acrylic. With the setting off it has no backdrop
+	/// and the transparent surfaces stay as they are.
+	/// </summary>
+	private void ApplyWindowBackdrop()
 	{
-		_mConfigurationSource.IsInputActive = args.WindowActivationState != WindowActivationState.Deactivated;
+		if (!_settingsManager.AcrylicEnabled)
+			SystemBackdrop = null;
+		else if (SystemBackdrop is not DesktopAcrylicBackdrop)
+			SystemBackdrop = new DesktopAcrylicBackdrop();
 	}
 
 	private void Window_Closed(object sender, WindowEventArgs args)
 	{
-		// Make sure any Mica/Acrylic controller is disposed
-		// so it doesn't try to use this closed window.
-		if (_mBackdropController != null)
-		{
-			_mBackdropController.Dispose();
-			_mBackdropController = null;
-		}
-		this.Activated -= Window_Activated;
-		_mConfigurationSource = null;
+		// This handler runs before App.OnExit, which cancels the close and only hides the window
+		// while the tray icon is active. Tearing down here would leave the reopened window with
+		// no backdrop and deaf to install/library events, freezing the pane's progress.
+		if (App.HandleClosedEvents)
+			return;
+
+		_settingsManager.AcrylicEnabledChanged -= OnAcrylicEnabledChanged;
 
 		_libraryManager.LibraryUpdated -= LibraryUpdatedHandler;
 		_libraryManager.GameStatusUpdated -= GameStatusUpdatedHandler;
@@ -890,56 +1279,4 @@ public sealed partial class MainWindow : Window
 		_installManager.InstallProgressUpdate -= InstallProgressUpdateHandler;
 		_taskbarProgress?.Clear();
 	}
-
-	private void Window_ThemeChanged(FrameworkElement sender, object args)
-	{
-		if (_mConfigurationSource != null)
-		{
-			SetConfigurationSourceTheme();
-		}
-	}
-
-	private void SetConfigurationSourceTheme()
-	{
-		switch (((FrameworkElement)this.Content).ActualTheme)
-		{
-			case ElementTheme.Dark: _mConfigurationSource.Theme = SystemBackdropTheme.Dark; break;
-			case ElementTheme.Light: _mConfigurationSource.Theme = SystemBackdropTheme.Light; break;
-			case ElementTheme.Default: _mConfigurationSource.Theme = SystemBackdropTheme.Default; break;
-		}
-	}
 }
-
-internal class WindowsSystemDispatcherQueueHelper
-{
-	[StructLayout(LayoutKind.Sequential)]
-	private struct DispatcherQueueOptions
-	{
-		internal int dwSize;
-		internal int threadType;
-		internal int apartmentType;
-	}
-
-	[DllImport("CoreMessaging.dll")]
-	private static extern int CreateDispatcherQueueController([In] DispatcherQueueOptions options, [In, Out, MarshalAs(UnmanagedType.IUnknown)] ref object dispatcherQueueController);
-
-	private object _mDispatcherQueueController = null;
-	public void EnsureWindowsSystemDispatcherQueueController()
-	{
-		if (Windows.System.DispatcherQueue.GetForCurrentThread() != null)
-		{
-			// one already exists, so we'll just use it.
-			return;
-		}
-
-		if (_mDispatcherQueueController != null) return;
-		DispatcherQueueOptions options;
-		options.dwSize = Marshal.SizeOf(typeof(DispatcherQueueOptions));
-		options.threadType = 2;	// DQTYPE_THREAD_CURRENT
-		options.apartmentType = 2; // DQTAT_COM_STA
-
-		CreateDispatcherQueueController(options, ref _mDispatcherQueueController);
-	}
-}
-
-

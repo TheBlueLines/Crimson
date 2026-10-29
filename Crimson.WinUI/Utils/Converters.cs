@@ -98,6 +98,7 @@ public class GamePrimaryActionGlyphConverter : IValueConverter
 		GamePrimaryAction.Play => "\uE768",
 		GamePrimaryAction.Update => "\uE777",
 		GamePrimaryAction.Repair => "\uE90F",
+		GamePrimaryAction.Stop => "\uE71A",
 		_ => string.Empty
 	};
 
@@ -116,16 +117,16 @@ public class DriveSpaceColorConverter : IValueConverter
 			// Get colors from theme resources to respect light/dark mode
 			if (canInstall)
 			{
-				return Application.Current.Resources["SystemFillColorSuccessBrush"] as SolidColorBrush;
+				return (SolidColorBrush)Application.Current.Resources["SystemFillColorSuccessBrush"];
 			}
 			else
 			{
-				return Application.Current.Resources["SystemFillColorCriticalBrush"] as SolidColorBrush;
+				return (SolidColorBrush)Application.Current.Resources["SystemFillColorCriticalBrush"];
 			}
 		}
 
 		// Return default color if input is invalid
-		return Application.Current.Resources["TextFillColorPrimaryBrush"] as SolidColorBrush;
+		return (SolidColorBrush)Application.Current.Resources["TextFillColorPrimaryBrush"];
 	}
 
 	public object ConvertBack(object value, Type targetType, object parameter, string language)

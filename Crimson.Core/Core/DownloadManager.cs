@@ -66,7 +66,8 @@ public class DownloadManager
 		string destinationPath,
 		int maxRetries = 7,
 		CancellationToken cancellationToken = default,
-		long? expectedSize = null)
+		long? expectedSize = null,
+		ChunkInfo? expectedChunk = null)
 	{
 		ArgumentOutOfRangeException.ThrowIfLessThan(maxRetries, 1);
 
@@ -87,7 +88,7 @@ public class DownloadManager
 				try
 				{
 					var success = await MeasureDownloadSpeed(
-						mirror, fullUrl, destinationPath, expectedSize, cancellationToken);
+						mirror, fullUrl, destinationPath, expectedSize, expectedChunk, cancellationToken);
 					if (success) return true;
 
 					await UpdateMirrorStats(mirror.BaseUrl, false, 0, cancellationToken);
@@ -140,6 +141,7 @@ public class DownloadManager
 		string url,
 		string destinationPath,
 		long? expectedSize,
+		ChunkInfo? expectedChunk,
 		CancellationToken cancellationToken)
 	{
 		var stopwatch = Stopwatch.StartNew();
@@ -165,9 +167,9 @@ public class DownloadManager
 			await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
 			await using (var fileStream = new FileStream(
 				partialPath, FileMode.Create, FileAccess.Write, FileShare.None,
-				bufferSize: 81920, useAsync: true))
+				bufferSize: 1024 * 1024, useAsync: true))
 			{
-				await stream.CopyToAsync(fileStream, cancellationToken);
+				await stream.CopyToAsync(fileStream, 1024 * 1024, cancellationToken);
 				await fileStream.FlushAsync(cancellationToken);
 			}
 
@@ -176,13 +178,25 @@ public class DownloadManager
 			if ((contentLength.HasValue && downloadedSize != contentLength.Value) ||
 				(expectedSize.HasValue && downloadedSize != expectedSize.Value))
 			{
+				if (expectedChunk is null || !MatchesExpectedChunk(partialPath, expectedChunk))
+				{
+					_log.Warning(
+						"MeasureDownloadSpeed: Size mismatch for {Url}. Downloaded {DownloadedSize}, expected {ExpectedSize}, content length {ContentLength}",
+						SensitiveDataRedactor.UriWithoutQuery(uri.AbsoluteUri),
+						downloadedSize,
+						expectedSize,
+						contentLength);
+					return false;
+				}
+
+				// Epic can republish a chunk with a larger version 3 header while the manifest
+				// still records the old version 2 size. The payload is valid and matches the
+				// manifest metadata, so the absolute file size is not authoritative.
 				_log.Warning(
-					"MeasureDownloadSpeed: Size mismatch for {Url}. Downloaded {DownloadedSize}, expected {ExpectedSize}, content length {ContentLength}",
+					"MeasureDownloadSpeed: Accepting chunk with revised header size for {Url}. Downloaded {DownloadedSize}, manifest size {ExpectedSize}",
 					SensitiveDataRedactor.UriWithoutQuery(uri.AbsoluteUri),
 					downloadedSize,
-					expectedSize,
-					contentLength);
-				return false;
+					expectedSize);
 			}
 
 			File.Move(partialPath, destinationPath, overwrite: true);
@@ -216,6 +230,24 @@ public class DownloadManager
 			{
 				_log.Warning(ex, "MeasureDownloadSpeed: Failed to remove partial download {Path}", partialPath);
 			}
+		}
+	}
+
+	private bool MatchesExpectedChunk(string path, ChunkInfo expectedChunk)
+	{
+		try
+		{
+			var chunk = Chunk.ReadBuffer(File.ReadAllBytes(path));
+			chunk.ValidateAgainst(expectedChunk);
+			return true;
+		}
+		catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or IOException
+			or ArgumentException or OverflowException)
+		{
+			_log.Warning(
+				"MeasureDownloadSpeed: Downloaded chunk does not match manifest metadata: {Error}",
+				ex.Message);
+			return false;
 		}
 	}
 

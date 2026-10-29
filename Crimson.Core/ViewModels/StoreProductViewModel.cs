@@ -102,6 +102,61 @@ public partial class StoreProductViewModel : ObservableObject, INavigationAware
 	[NotifyPropertyChangedFor(nameof(HasGallery))]
 	private List<string> _galleryImageUrls = [];
 
+	// The rest of the web page, filled in once GetProductPageAsync answers.
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(HasDescriptionBlocks))]
+	private List<StoreDescriptionBlock> _descriptionBlocks = [];
+
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(HasMedia))]
+	private List<StoreMediaItem> _media = [];
+
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(HasRequirements))]
+	private List<StoreRequirement> _requirements = [];
+
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(HasAudioLanguages))]
+	private string? _audioLanguagesText;
+
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(HasTextLanguages))]
+	private string? _textLanguagesText;
+
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(HasSocialLinks))]
+	private List<StoreSocialLink> _socialLinks = [];
+
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(HasPlayerRating))]
+	[NotifyPropertyChangedFor(nameof(HasRatings))]
+	private string? _playerRatingText;
+
+	[ObservableProperty]
+	private List<string> _ratingHighlights = [];
+
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(HasCriticScore))]
+	[NotifyPropertyChangedFor(nameof(HasRatings))]
+	private string? _criticScoreText;
+
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(HasCriticRecommended))]
+	[NotifyPropertyChangedFor(nameof(HasRatings))]
+	private string? _criticRecommendedText;
+
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(HasCriticAward))]
+	private string? _criticAward;
+
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(HasAddOns))]
+	private List<StoreItem> _addOns = [];
+
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(HasRefundType))]
+	private string? _refundTypeText;
+
 	[ObservableProperty]
 	private string _priceText = string.Empty;
 
@@ -155,6 +210,19 @@ public partial class StoreProductViewModel : ObservableObject, INavigationAware
 	public bool HasReleaseDate => !string.IsNullOrWhiteSpace(ReleaseDateText);
 	public bool HasTags => Tags.Count > 0;
 	public bool HasGallery => GalleryImageUrls.Count > 0;
+	public bool HasDescriptionBlocks => DescriptionBlocks.Count > 0;
+	public bool HasMedia => Media.Count > 0;
+	public bool HasRequirements => Requirements.Count > 0;
+	public bool HasAudioLanguages => !string.IsNullOrEmpty(AudioLanguagesText);
+	public bool HasTextLanguages => !string.IsNullOrEmpty(TextLanguagesText);
+	public bool HasSocialLinks => SocialLinks.Count > 0;
+	public bool HasPlayerRating => !string.IsNullOrEmpty(PlayerRatingText);
+	public bool HasCriticScore => !string.IsNullOrEmpty(CriticScoreText);
+	public bool HasCriticRecommended => !string.IsNullOrEmpty(CriticRecommendedText);
+	public bool HasCriticAward => !string.IsNullOrEmpty(CriticAward);
+	public bool HasRatings => HasPlayerRating || HasCriticScore || HasCriticRecommended;
+	public bool HasAddOns => AddOns.Count > 0;
+	public bool HasRefundType => !string.IsNullOrEmpty(RefundTypeText);
 	public bool HasOriginalPrice => !string.IsNullOrEmpty(OriginalPriceText);
 	public bool HasDiscount => !string.IsNullOrEmpty(DiscountText);
 
@@ -166,6 +234,12 @@ public partial class StoreProductViewModel : ObservableObject, INavigationAware
 	public event Func<Game, Task>? InstallDialogRequested;
 
 	public event Action<string>? OpenInLibraryRequested;
+
+	/// <summary>Raised to open another store product, such as an add-on, in Crimson.</summary>
+	public event Action<StoreProductRequest>? OpenProductRequested;
+
+	/// <summary>Raised for links that leave the store, such as the publisher's social pages.</summary>
+	public event Action<Uri>? OpenExternalLinkRequested;
 
 	public StoreProductViewModel(
 		ILogger logger,
@@ -265,6 +339,29 @@ public partial class StoreProductViewModel : ObservableObject, INavigationAware
 	private void OpenOnWeb() => RequestWebStore(GetProductUri());
 
 	[RelayCommand]
+	private void OpenAddOn(StoreItem? item)
+	{
+		if (item?.Offer.HasOfferReference == true)
+			OpenProductRequested?.Invoke(item.Offer.ToProductRequest());
+	}
+
+	[RelayCommand]
+	private void OpenSocialLink(StoreSocialLink? link)
+	{
+		if (link is not null && link.Url.Scheme == Uri.UriSchemeHttps)
+			OpenExternalLinkRequested?.Invoke(link.Url);
+	}
+
+	internal static string? GetRefundText(string? refundType) => refundType?.ToUpperInvariant() switch
+	{
+		null or "" => null,
+		"SELF_REFUNDABLE" => "Self-refundable",
+		"NON_REFUNDABLE" => "Non-refundable",
+		"REFUNDABLE" or "COMMON_REFUNDABLE" => "Refundable",
+		var other => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(other.Replace('_', ' ').ToLowerInvariant())
+	};
+
+	[RelayCommand]
 	private void OpenInLibrary()
 	{
 		if (_ownedGame is not null)
@@ -361,6 +458,10 @@ public partial class StoreProductViewModel : ObservableObject, INavigationAware
 				_ownedGame = StoreOwnership.FindOwnedGame(library, details.Offer);
 				ApplyOwnership();
 			});
+
+			// The rest of the page fills in afterwards; the offer is already readable meanwhile.
+			if (details?.Offer.Namespace is { Length: > 0 } sandboxId)
+				await LoadProductPageAsync(sandboxId, details.Offer.ProductSlug ?? request.ProductSlug, generation, cancellationToken);
 		}
 		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 		{
@@ -377,6 +478,72 @@ public partial class StoreProductViewModel : ObservableObject, INavigationAware
 				SetError(UnreachableMessage);
 			});
 		}
+	}
+
+	private async Task LoadProductPageAsync(
+		string sandboxId,
+		string? productSlug,
+		int generation,
+		CancellationToken cancellationToken)
+	{
+		StoreProductPageInfo page;
+		try
+		{
+			page = await _catalog.GetProductPageAsync(sandboxId, productSlug, cancellationToken);
+		}
+		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+		{
+			return;
+		}
+		catch (Exception ex)
+		{
+			// The offer alone is still a usable page.
+			_log.Warning(ex, "StoreProductViewModel: loading the product page extras failed");
+			return;
+		}
+
+		_uiDispatcher.TryEnqueue(() =>
+		{
+			if (generation == Volatile.Read(ref _loadGeneration))
+				ApplyProductPage(page);
+		});
+	}
+
+	internal void ApplyProductPage(StoreProductPageInfo page)
+	{
+		var now = _time.GetUtcNow();
+
+		if (page.LongDescription is not null)
+		{
+			var blocks = StoreDescriptionFormatter.ToBlocks(page.LongDescription);
+			// The summary already sits above the description; don't repeat it as the first paragraph.
+			if (blocks.Count > 0 && blocks[0].IsText &&
+				string.Equals(blocks[0].Text, Summary.Trim(), StringComparison.Ordinal))
+				blocks = blocks.Skip(1).ToList();
+			if (blocks.Count > 0)
+				DescriptionBlocks = blocks.ToList();
+		}
+
+		if (page.Media.Count > 0)
+			Media = page.Media.ToList();
+		Requirements = page.Requirements.ToList();
+		AudioLanguagesText = page.AudioLanguages.Count > 0 ? string.Join(", ", page.AudioLanguages) : null;
+		TextLanguagesText = page.TextLanguages.Count > 0 ? string.Join(", ", page.TextLanguages) : null;
+		SocialLinks = page.SocialLinks.ToList();
+
+		PlayerRatingText = page.PlayerRating?.Average.ToString("0.0", CultureInfo.CurrentCulture);
+		RatingHighlights = page.PlayerRating?.Highlights
+			.Select(highlight => $"{highlight.Prefix} {highlight.Title}".Trim())
+			.ToList() ?? [];
+		CriticScoreText = page.CriticRating?.Score?.ToString(CultureInfo.CurrentCulture);
+		CriticRecommendedText = page.CriticRating?.PercentRecommended is { } percent ? $"{percent}%" : null;
+		CriticAward = page.CriticRating?.Award;
+
+		// Add-ons share the base game's namespace; the base game itself is not one of them.
+		AddOns = page.AddOns
+			.Where(offer => !string.Equals(offer.OfferId, _details?.Offer.OfferId, StringComparison.Ordinal))
+			.Select(offer => StoreItem.Create(offer, now))
+			.ToList();
 	}
 
 	private async Task<IReadOnlyCollection<Game>> LoadLibraryAsync()
@@ -415,6 +582,22 @@ public partial class StoreProductViewModel : ObservableObject, INavigationAware
 			: null;
 		Tags = details.Tags.ToList();
 		GalleryImageUrls = details.GalleryImageUrls.ToList();
+		// Until the product page answers, show what the offer itself carries.
+		DescriptionBlocks = StoreDescriptionFormatter.ToBlocks(details.LongDescription)
+			.Where(block => !(block.IsText && string.Equals(block.Text, Summary.Trim(), StringComparison.Ordinal)))
+			.ToList();
+		Media = details.GalleryImageUrls.Select(url => new StoreMediaItem(url, IsVideo: false)).ToList();
+		Requirements = [];
+		AudioLanguagesText = null;
+		TextLanguagesText = null;
+		SocialLinks = [];
+		PlayerRatingText = null;
+		RatingHighlights = [];
+		CriticScoreText = null;
+		CriticRecommendedText = null;
+		CriticAward = null;
+		AddOns = [];
+		RefundTypeText = GetRefundText(details.RefundType);
 		PriceText = price.Current;
 		OriginalPriceText = price.Original;
 		DiscountText = price.Discount;
@@ -457,10 +640,11 @@ public partial class StoreProductViewModel : ObservableObject, INavigationAware
 		PrimaryAction = StoreProductAction.None;
 		IsPrimaryActionEnabled = false;
 		IsProgressVisible = true;
-		IsProgressIndeterminate = install.Status is ActionStatus.Pending or ActionStatus.Cancelling;
-		ProgressValue = install.ProgressPercentage;
+		IsProgressIndeterminate = install.IsVerifying || install.Status is ActionStatus.Pending or ActionStatus.Cancelling;
+		ProgressValue = install.IsVerifying ? 0 : install.ProgressPercentage;
 		PrimaryActionText = install.Status switch
 		{
+			_ when install.IsVerifying => "Checking files...",
 			ActionStatus.Pending => "Pending...",
 			ActionStatus.Paused => $"Paused at {install.ProgressPercentage}%",
 			ActionStatus.Cancelling => "Cancelling...",

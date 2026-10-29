@@ -1,4 +1,4 @@
-<Window
+﻿<Window
 	x:Class="Crimson.Views.MainWindow"
 	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -11,13 +11,125 @@
 
 	<Grid>
 		<Grid.RowDefinitions>
-			<RowDefinition Height="40" />
+			<!--  Matches the tall (48px) caption buttons set in MainWindow.StyleCaptionButtons.  -->
+			<RowDefinition Height="48" />
 			<RowDefinition />
 		</Grid.RowDefinitions>
+
+		<!--
+			The selected game's key art fills the whole window, title bar and navigation pane
+			included. The pane sees it through a blur (PaneBlur) whose width follows the pane
+			(MainWindow.UpdatePaneBlurWidth).
+		-->
+		<Grid
+			x:Name="GameBackgroundLayer"
+			Grid.RowSpan="2"
+			IsHitTestVisible="False"
+			Visibility="Collapsed">
+			<Grid.Resources>
+				<LinearGradientBrush x:Key="GameBackgroundVerticalScrimBrush" StartPoint="0,0" EndPoint="0,1">
+					<GradientStop Offset="0" Color="#99000000" />
+					<GradientStop Offset="0.2" Color="#1A000000" />
+					<GradientStop Offset="0.7" Color="#33000000" />
+					<GradientStop Offset="1" Color="#CC000000" />
+				</LinearGradientBrush>
+				<LinearGradientBrush x:Key="GameBackgroundLeftScrimBrush" StartPoint="0,0" EndPoint="1,0">
+					<GradientStop Offset="0" Color="#B3000000" />
+					<GradientStop Offset="0.22" Color="#73000000" />
+					<GradientStop Offset="0.55" Color="#26000000" />
+					<GradientStop Offset="1" Color="#00000000" />
+				</LinearGradientBrush>
+			</Grid.Resources>
+			<!--  Centred so a portrait fallback still zooms into the artwork's main subject.  -->
+			<Rectangle>
+				<Rectangle.Fill>
+					<ImageBrush
+						x:Name="GameBackgroundBrush"
+						AlignmentX="Center"
+						AlignmentY="Center"
+						Stretch="UniformToFill" />
+				</Rectangle.Fill>
+			</Rectangle>
+			<Border Background="{StaticResource GameBackgroundVerticalScrimBrush}" />
+			<Border Background="{StaticResource GameBackgroundLeftScrimBrush}" />
+			<!--  Sits exactly under GlobalSearchBox (48px row, 34px box) so the search pill is frosted too.  -->
+			<Border
+				x:Name="SearchBlur"
+				Width="520"
+				Height="34"
+				Margin="0,7,0,0"
+				HorizontalAlignment="Center"
+				VerticalAlignment="Top"
+				CornerRadius="8">
+				<Border.Background>
+					<AcrylicBrush
+						FallbackColor="#CC1E1E1E"
+						TintColor="#808080"
+						TintLuminosityOpacity="0.15"
+						TintOpacity="0.1" />
+				</Border.Background>
+			</Border>
+			<!--  In-app acrylic blurs the key art behind it, so the pane takes its colours from the game.  -->
+			<Border
+				x:Name="PaneBlur"
+				Width="0"
+				HorizontalAlignment="Left">
+				<Border.Background>
+					<AcrylicBrush
+						FallbackColor="#E6202020"
+						TintColor="#000000"
+						TintLuminosityOpacity="0.25"
+						TintOpacity="0.2" />
+				</Border.Background>
+			</Border>
+		</Grid>
+
+		<!--
+			Signing in fills the whole window, title bar included, like a game's key art does.
+			Declared before AppTitleBar so the app icon and name stay on top; the search box is
+			hidden until signed in (MainWindow.UpdateUIBasedOnAuthenticationStatus).
+		-->
+		<Grid
+			x:Name="LoginModal"
+			Grid.RowSpan="2"
+			HorizontalAlignment="Stretch"
+			VerticalAlignment="Stretch"
+			Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
+			<Border
+				Padding="40"
+				HorizontalAlignment="Center"
+				VerticalAlignment="Center"
+				Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
+				<StackPanel Orientation="Vertical" Spacing="20">
+					<StackPanel
+						HorizontalAlignment="Center"
+						VerticalAlignment="Center"
+						Orientation="Horizontal"
+						Spacing="20">
+						<ProgressRing IsActive="True" />
+						<TextBlock
+							x:Name="LoginModalTitle"
+							Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+							Style="{ThemeResource TitleTextBlockStyle}"
+							Text="Loading...." />
+					</StackPanel>
+					<TextBlock
+						x:Name="LoginModalDescription"
+						HorizontalAlignment="Center"
+						Style="{ThemeResource SubtitleTextBlockStyle}"
+						Text="Please wait" />
+				</StackPanel>
+			</Border>
+		</Grid>
+		<local:LoginPage
+			x:Name="LoginPage"
+			Grid.RowSpan="2"
+			Visibility="Collapsed" />
+
 		<Grid
 			x:Name="AppTitleBar"
 			Grid.Row="0"
-			Background="{ThemeResource SmokeFillColorDefaultBrush}">
+			Background="Transparent">
 			<Image
 				Width="16"
 				Height="16"
@@ -35,14 +147,56 @@
 		<AutoSuggestBox
 			x:Name="GlobalSearchBox"
 			Grid.Row="0"
-			MaxWidth="520"
-			Margin="120,4,160,4"
-			HorizontalAlignment="Stretch"
+			Visibility="Collapsed"
+			Width="520"
+			Height="34"
+			HorizontalAlignment="Center"
+			VerticalAlignment="Center"
 			Canvas.ZIndex="1"
-			PlaceholderText="Search your library"
+			PlaceholderText="Search for something..."
 			QuerySubmitted="GlobalSearchBox_QuerySubmitted"
 			TextChanged="GlobalSearchBox_TextChanged"
 			TextMemberPath="DisplayText">
+			<!--
+				Frosted pill like Fluent Launcher's title bar search. The box itself is a light
+				veil; on a game page SearchBlur (in GameBackgroundLayer) blurs the art beneath it.
+				Acrylic on the box would keep showing the last game's colours once the art is gone.
+				It darkens while typing to keep the text readable.
+			-->
+			<AutoSuggestBox.Resources>
+				<SolidColorBrush x:Key="TextControlBackground" Color="#14FFFFFF" />
+				<SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#24FFFFFF" />
+				<SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#CC1E1E1E" />
+				<!--
+					The results popup is its own window, so SearchResultsBlur (behind it, in the main
+					window) provides the acrylic, which this list must not cover.
+				-->
+				<SolidColorBrush x:Key="AutoSuggestBoxSuggestionsListBackground" Color="Transparent" />
+				<SolidColorBrush x:Key="AutoSuggestBoxSuggestionsListBorderBrush" Color="#33FFFFFF" />
+				<SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="#801E1E1E" />
+				<SolidColorBrush x:Key="TextControlBorderBrush" Color="#33FFFFFF" />
+				<SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#4DFFFFFF" />
+				<SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#80FFFFFF" />
+				<SolidColorBrush x:Key="TextControlBorderBrushDisabled" Color="#1AFFFFFF" />
+				<SolidColorBrush x:Key="TextControlForeground" Color="#FFFFFFFF" />
+				<SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="#FFFFFFFF" />
+				<SolidColorBrush x:Key="TextControlForegroundFocused" Color="#FFFFFFFF" />
+				<SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#99FFFFFF" />
+				<SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#CCFFFFFF" />
+				<SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#99FFFFFF" />
+				<SolidColorBrush x:Key="TextControlButtonForeground" Color="#CCFFFFFF" />
+				<SolidColorBrush x:Key="TextControlButtonBackground" Color="Transparent" />
+				<SolidColorBrush x:Key="TextControlButtonBackgroundPointerOver" Color="#22FFFFFF" />
+				<SolidColorBrush x:Key="TextControlButtonBackgroundPressed" Color="#33FFFFFF" />
+				<SolidColorBrush x:Key="TextControlButtonBorderBrush" Color="Transparent" />
+				<SolidColorBrush x:Key="AutoSuggestBoxQueryButtonForeground" Color="#CCFFFFFF" />
+				<SolidColorBrush x:Key="AutoSuggestBoxQueryButtonBackground" Color="Transparent" />
+				<SolidColorBrush x:Key="AutoSuggestBoxQueryButtonBackgroundPointerOver" Color="#22FFFFFF" />
+				<SolidColorBrush x:Key="AutoSuggestBoxQueryButtonBackgroundPressed" Color="#33FFFFFF" />
+				<CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
+				<x:Double x:Key="TextControlThemeMinHeight">34</x:Double>
+				<x:Double x:Key="TextControlThemeMinWidth">0</x:Double>
+			</AutoSuggestBox.Resources>
 			<AutoSuggestBox.QueryIcon>
 				<SymbolIcon Symbol="Find" />
 			</AutoSuggestBox.QueryIcon>
@@ -124,7 +278,7 @@
 			<NavigationView
 				x:Name="NavControl"
 				BackRequested="NavControl_BackRequested"
-				Background="{ThemeResource SmokeFillColorDefaultBrush}"
+				Background="Transparent"
 				IsBackEnabled="True"
 				ItemInvoked="NavControl_ItemInvoked"
 				CompactPaneLength="56"
@@ -156,9 +310,14 @@
 					<!--  Installed games are appended here by MainWindow.RebuildInstalledMenu.  -->
 				</NavigationView.MenuItems>
 
-				<ScrollViewer>
-					<Frame x:Name="ContentFrame" IsTabStop="True" />
-				</ScrollViewer>
+				<!--  Pages manage their own scrolling so full-bleed pages can fill the window.  -->
+				<!--  Only the content area is dimmed; the pane and title bar show the Mica backdrop.  -->
+				<Frame
+					x:Name="ContentFrame"
+					Background="{ThemeResource SmokeFillColorDefaultBrush}"
+					HorizontalContentAlignment="Stretch"
+					IsTabStop="True"
+					VerticalContentAlignment="Stretch" />
 
 				<NavigationView.FooterMenuItems>
 					<!--
@@ -167,6 +326,7 @@
 					-->
 					<NavigationViewItem
 						x:Name="DownloadsNavItem"
+						Content="Downloads"
 						Tag="Crimson.Views.DownloadsPage"
 						ToolTipService.ToolTip="No downloads in queue">
 						<NavigationViewItem.Icon>
@@ -175,44 +335,45 @@
 						<NavigationViewItem.InfoBadge>
 							<InfoBadge x:Name="DownloadInfoBadge" Visibility="Collapsed" />
 						</NavigationViewItem.InfoBadge>
+					</NavigationViewItem>
+					<!--
+						While a download is active and the pane is open, this item stands in for
+						DownloadsNavItem (see MainWindow.UpdateDownloadsNavItems).
+					-->
+					<NavigationViewItem
+						x:Name="CurrentDownloadNavItem"
+						IsTabStop="False"
+						SelectsOnInvoked="False">
+						<NavigationViewItem.Icon>
+							<FontIcon Glyph="&#xE896;" Visibility="Collapsed" />
+						</NavigationViewItem.Icon>
 						<crimson:CurrentDownloadControl x:Name="CurrentDownload" />
 					</NavigationViewItem>
 				</NavigationView.FooterMenuItems>
 			</NavigationView>
 
-			<Grid
-				x:Name="LoginModal"
-				HorizontalAlignment="Stretch"
-				VerticalAlignment="Stretch"
-				Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
-				<Border
-					Padding="40"
-					HorizontalAlignment="Center"
-					VerticalAlignment="Center"
-					Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
-					<StackPanel Orientation="Vertical" Spacing="20">
-						<StackPanel
-							HorizontalAlignment="Center"
-							VerticalAlignment="Center"
-							Orientation="Horizontal"
-							Spacing="20">
-							<ProgressRing IsActive="True" />
-							<TextBlock
-								x:Name="LoginModalTitle"
-								Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-								Style="{ThemeResource TitleTextBlockStyle}"
-								Text="Loading...." />
-						</StackPanel>
-						<TextBlock
-							x:Name="LoginModalDescription"
-							HorizontalAlignment="Center"
-							Style="{ThemeResource SubtitleTextBlockStyle}"
-							Text="Please wait" />
-					</StackPanel>
-				</Border>
-			</Grid>
-			<local:LoginPage x:Name="LoginPage" Visibility="Collapsed" />
 		</Grid>
+		<!--
+			The search results popup is its own window and Windows draws no backdrop behind it, so
+			this in-app acrylic sits under it and blurs the page instead, like SearchBlur does for
+			the search box. MainWindow.UpdateSearchResultsBlur sizes it to the open results.
+		-->
+		<Border
+			x:Name="SearchResultsBlur"
+			Grid.RowSpan="2"
+			HorizontalAlignment="Left"
+			VerticalAlignment="Top"
+			CornerRadius="8"
+			IsHitTestVisible="False"
+			Visibility="Collapsed">
+			<Border.Background>
+				<AcrylicBrush
+					FallbackColor="#F0202020"
+					TintColor="#1C1C1C"
+					TintLuminosityOpacity="0.55"
+					TintOpacity="0.35" />
+			</Border.Background>
+		</Border>
 		<crimson:TrayIconView x:Name="TrayIconView" />
 	</Grid>
 </Window>

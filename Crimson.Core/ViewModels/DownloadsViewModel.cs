@@ -26,6 +26,15 @@ public partial class DownloadsViewModel : ObservableObject, IDisposable
 	private ObservableCollection<DownloadManagerItem> _queueItems = new();
 
 	[ObservableProperty]
+	private ObservableCollection<PausedDownloadItem> _pausedItems = new();
+
+	[ObservableProperty]
+	private bool _hasPausedItems = false;
+
+	partial void OnPausedItemsChanged(ObservableCollection<PausedDownloadItem> value) =>
+		HasPausedItems = value is { Count: > 0 };
+
+	[ObservableProperty]
 	private ObservableCollection<DownloadManagerItem> _historyItems = new();
 
 	[ObservableProperty]
@@ -77,6 +86,7 @@ public partial class DownloadsViewModel : ObservableObject, IDisposable
 		var gameInQueue = _installManager.CurrentInstall;
 		HandleInstallationStatusChanged(gameInQueue);
 		FetchQueueItemsList();
+		FetchPausedItemsList();
 		FetchHistoryItemsList();
 		_installManager.InstallationStatusChanged += HandleInstallationStatusChanged;
 		_installManager.InstallProgressUpdate += InstallationProgressUpdate;
@@ -112,6 +122,33 @@ public partial class DownloadsViewModel : ObservableObject, IDisposable
 			_log.Error(ex, "FetchQueueItemsList: Exception occurred");
 		}
 	}
+	private void FetchPausedItemsList()
+	{
+		try
+		{
+			ObservableCollection<PausedDownloadItem> itemList = new();
+			foreach (var install in _installManager.SuspendedInstalls)
+			{
+				var gameInfo = _libraryManager.GetGameInfo(install.AppName);
+				if (gameInfo is null) continue;
+				itemList.Add(new PausedDownloadItem()
+				{
+					Name = install.AppName,
+					Title = gameInfo.AppTitle,
+					ImageUrl = gameInfo.Metadata.KeyImages
+						.FirstOrDefault(image => image.Type == "DieselGameBoxTall")?.Url,
+					ProgressPercentage = Math.Clamp(install.ProgressPercentage, 0, 100),
+					SizeText = FormatProgressSize(install)
+				});
+			}
+			PausedItems = itemList;
+		}
+		catch (Exception ex)
+		{
+			_log.Error(ex, "FetchPausedItemsList: Exception occurred");
+		}
+	}
+
 	private void FetchHistoryItemsList()
 	{
 		try
@@ -163,7 +200,15 @@ public partial class DownloadsViewModel : ObservableObject, IDisposable
 		_log.Information("HandleInstallationStatusChanged: Handling Installation Status Change");
 		FetchQueueItemsList();
 		FetchHistoryItemsList();
-		if (installItem == null)
+		FetchPausedItemsList();
+
+		// Events from games pushed into the paused list only refresh that list; the active slot
+		// always mirrors whatever install currently owns the download pipeline.
+		var current = _installManager.CurrentInstall;
+		if (current == null && installItem?.Status == ActionStatus.Cancelling)
+			current = installItem;
+
+		if (current == null)
 		{
 			_log.Information("HandleInstallationStatusChanged: No installation in progress");
 			ShowCurrentDownload = false;
@@ -172,9 +217,9 @@ public partial class DownloadsViewModel : ObservableObject, IDisposable
 
 		ShowCurrentDownload = true;
 		DownloadProgressBarIndeterminate = true;
-		SetCurrentInstallItem(installItem);
-		ApplyInstallationStatus(installItem);
-		UpdatePauseResumeControls(installItem.Status);
+		SetCurrentInstallItem(current);
+		ApplyInstallationStatus(current);
+		UpdatePauseResumeControls(current.Status);
 	}
 
 	private void SetCurrentInstallItem(InstallItem installItem)
@@ -221,11 +266,21 @@ public partial class DownloadsViewModel : ObservableObject, IDisposable
 		DownloadProgressBarValue = Convert.ToDouble(installItem.ProgressPercentage);
 		CurrentInstallAction = $@"{installItem.Action}ing";
 		CurrentDownloadSize = FormatProgressSize(installItem);
-		CurrentDownloadSpeed = $"{installItem.DownloadSpeedRawMiB} MiB /s";
+		CurrentDownloadSpeed = StorageSizeFormatter.FormatSpeed(installItem.DownloadSpeedRawMiB);
 	}
 
 	private void ApplyPausedState(InstallItem installItem)
 	{
+		if (installItem.IsVerifying)
+		{
+			// Sizes and progress are unknown until the disk check finishes.
+			DownloadProgressBarIndeterminate = true;
+			CurrentInstallAction = "Checking files";
+			CurrentDownloadSize = string.Empty;
+			CurrentDownloadSpeed = string.Empty;
+			return;
+		}
+
 		DownloadProgressBarIndeterminate = false;
 		DownloadProgressBarValue = Convert.ToDouble(installItem.ProgressPercentage);
 		CurrentInstallAction = "Paused";
@@ -273,7 +328,7 @@ public partial class DownloadsViewModel : ObservableObject, IDisposable
 				DownloadProgressBarIndeterminate = false;
 				DownloadProgressBarValue = Convert.ToDouble(installItem.ProgressPercentage);
 				CurrentDownloadSize = $@"{StorageSizeFormatter.FormatMebibytes(installItem.WrittenSizeMiB)} of {StorageSizeFormatter.FormatMebibytes(installItem.TotalWriteSizeMb)}";
-				CurrentDownloadSpeed = $@"{installItem.DownloadSpeedRawMiB} MiB/s";
+				CurrentDownloadSpeed = StorageSizeFormatter.FormatSpeed(installItem.DownloadSpeedRawMiB);
 			});
 		}
 		catch (Exception ex)
@@ -299,6 +354,20 @@ public partial class DownloadsViewModel : ObservableObject, IDisposable
 	private void ResumeInstall()
 	{
 		Task.Run(() => _installManager.ResumeInstall());
+	}
+
+	public void ResumePausedGame(string appName)
+	{
+		if (string.IsNullOrEmpty(appName)) return;
+		_log.Information("ResumePausedGame: Resuming paused install {AppName}", appName);
+		_ = Task.Run(() => _installManager.ResumeSuspendedInstallAsync(appName));
+	}
+
+	public void CancelPausedGame(string appName)
+	{
+		if (string.IsNullOrEmpty(appName)) return;
+		_log.Information("CancelPausedGame: Cancelling paused install {AppName}", appName);
+		_installManager.CancelSuspendedInstall(appName);
 	}
 
 	private bool UpdateUIProperties(Action updateAction)

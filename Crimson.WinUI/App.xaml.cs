@@ -113,6 +113,13 @@ namespace Crimson
 					.ConfigurePrimaryHttpMessageHandler(CreateSecureHttpHandler);
 				services.AddHttpClient("EpicStore", ConfigureEpicStoreClient)
 					.ConfigurePrimaryHttpMessageHandler(CreateSecureHttpHandler);
+				services.AddHttpClient("Images", client => client.Timeout = TimeSpan.FromSeconds(30))
+					.ConfigurePrimaryHttpMessageHandler(CreateSecureHttpHandler);
+				services.AddSingleton<ImageCache>(provider => new ImageCache(
+					provider.GetRequiredService<IHttpClientFactory>().CreateClient("Images"),
+					Path.Combine(GetAppDataPath(), "cache", "images"),
+					provider.GetRequiredService<ILogger>(),
+					maxConcurrentDownloads: 16));
 
 				services.AddSingleton<Storage>(provider => new Storage(
 					provider.GetRequiredService<ILogger>(),
@@ -158,9 +165,7 @@ namespace Crimson
 			Build();
 		}
 
-		private static string GetAppDataPath() => Path.Combine(
-			Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-			"Crimson");
+		private static string GetAppDataPath() => AppDataPaths.Root;
 
 		private static void ConfigureEpicClient(HttpClient client)
 		{
@@ -298,7 +303,19 @@ namespace Crimson
 			if (HandleClosedEvents)
 			{
 				args.Handled = true;
-				m_window.Hide();
+				m_window?.Hide();
+				return;
+			}
+
+			// The app is really going away: flush the active download so it can be resumed
+			// after the next start instead of being orphaned.
+			try
+			{
+				GetService<InstallManager>().SaveActiveInstallState();
+			}
+			catch (Exception ex)
+			{
+				Log.Warning(ex, "The active install state could not be saved on exit");
 			}
 		}
 

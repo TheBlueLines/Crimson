@@ -2,7 +2,7 @@
 
 class Settings
 {
-	public bool MicaEnabled { get; set; }
+	public bool AcrylicEnabled { get; set; } = true;
 
 	public string DefaultInstallLocation { get; set; }
 }

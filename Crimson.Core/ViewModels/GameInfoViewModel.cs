@@ -55,9 +55,6 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 	private double _progressValue;
 
 	[ObservableProperty]
-	private string? _titleImageUrl;
-
-	[ObservableProperty]
 	private bool _isInstallErrorVisible;
 
 	[ObservableProperty]
@@ -89,8 +86,6 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 		if (parameter is not string appName) return;
 
 		Game = _libraryManager.GetGameInfo((string)appName);
-		var gameImage = Game.Metadata.KeyImages.FirstOrDefault(image => image.Type == "DieselGameBox");
-		TitleImageUrl = gameImage?.Url;
 
 		CheckGameStatus(Game);
 
@@ -119,10 +114,28 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 			_log.LogInformation("GameInfoPage: Primary Action Button Clicked for {Game}", Game.AppTitle);
 			ClearInstallError();
 
+			if (PrimaryAction == GamePrimaryAction.Stop)
+			{
+				_log.LogInformation("GameInfoPage: Stopping Game {Game}", Game.AppTitle);
+				await _libraryManager.StopApp(Game.AppName);
+				return;
+			}
+
 			if (Game.LocalAppState?.InstallStatus == InstallState.Installed)
 			{
 				_log.LogInformation("GameInfoPage: Starting Game {Game}", Game.AppTitle);
-				await _libraryManager.LaunchApp(Game.AppName);
+				PrimaryActionButtonText = "Launching...";
+				IsPrimaryActionEnabled = false;
+				IsProgressRingIndeterminate = true;
+				IsProgressRingVisible = true;
+				try
+				{
+					await _libraryManager.LaunchApp(Game.AppName);
+				}
+				finally
+				{
+					ApplyGameStatus();
+				}
 				return;
 			}
 
@@ -185,6 +198,13 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 						PrimaryActionButtonText = "Pending...";
 						IsProgressRingVisible = true;
 						IsProgressRingIndeterminate = true;
+						break;
+
+					case ActionStatus.Paused when installItem.IsVerifying:
+						PrimaryActionButtonText = "Checking files...";
+						IsProgressRingVisible = true;
+						IsProgressRingIndeterminate = true;
+						IsPrimaryActionEnabled = true;
 						break;
 
 					case ActionStatus.Paused:
@@ -256,7 +276,7 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 		CanManageContent = _installer.CanManageContent(Game.AppName);
 		IsProgressRingVisible = false;
 		IsPrimaryActionEnabled = true;
-		PrimaryAction = GetPrimaryAction(Game.LocalAppState?.InstallStatus);
+		PrimaryAction = GetPrimaryAction(Game.LocalAppState?.InstallStatus, _libraryManager.IsAppRunning(Game.AppName));
 		if (PrimaryAction is GamePrimaryAction.Install)
 		{
 			PrimaryActionButtonText = "Install";
@@ -280,6 +300,17 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 				PrimaryActionButtonText = "Repair";
 				IsInstalled = true;
 				break;
+			case GamePrimaryAction.Stop when _libraryManager.IsAppStopping(Game.AppName):
+				PrimaryActionButtonText = "Stopping...";
+				IsInstalled = true;
+				IsPrimaryActionEnabled = false;
+				IsProgressRingIndeterminate = true;
+				IsProgressRingVisible = true;
+				break;
+			case GamePrimaryAction.Stop:
+				PrimaryActionButtonText = "Stop";
+				IsInstalled = true;
+				break;
 		}
 	}
 
@@ -301,8 +332,9 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 		_ => "Operation"
 	};
 
-	internal static GamePrimaryAction GetPrimaryAction(InstallState? installState) => installState switch
+	internal static GamePrimaryAction GetPrimaryAction(InstallState? installState, bool isRunning = false) => installState switch
 	{
+		InstallState.Installed or InstallState.NeedUpdate when isRunning => GamePrimaryAction.Stop,
 		null or InstallState.NotInstalled => GamePrimaryAction.Install,
 		InstallState.Installed => GamePrimaryAction.Play,
 		InstallState.NeedUpdate => GamePrimaryAction.Update,

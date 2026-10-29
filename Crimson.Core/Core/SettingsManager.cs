@@ -32,7 +32,20 @@ public class SettingsManager
 		Settings = LoadSettings();
 	}
 
-	public bool MicEnabled { get => Settings.MicaEnabled; set { Settings.MicaEnabled = value; } }
+	public event Action<bool>? AcrylicEnabledChanged;
+
+	public bool AcrylicEnabled
+	{
+		get => Settings.AcrylicEnabled;
+		set
+		{
+			if (Settings.AcrylicEnabled == value)
+				return;
+
+			Settings.AcrylicEnabled = value;
+			AcrylicEnabledChanged?.Invoke(value);
+		}
+	}
 
 	public string DefaultInstallLocation
 	{

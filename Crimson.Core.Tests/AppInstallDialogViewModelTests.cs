@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Reflection;
+using System.Text;
 using Crimson.Core;
 using Crimson.Models;
 using Crimson.Repository;
@@ -440,6 +441,80 @@ public sealed class AppInstallDialogViewModelTests : IDisposable
 		Assert.Empty(installer.GetQueueItemNames());
 	}
 
+	[Fact]
+	public async Task CancellingOneContentActionSkipsOnlyThatAction()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		var dlc = library.GetDlcsForGame(game.AppName).Single();
+		var location = game.LocalAppState!.InstallPath;
+		var cancelled = new InstallItem("editor", ActionType.Install, location)
+		{
+			ContentOwnerAppName = game.AppName
+		};
+		SetCurrentInstall(installer, cancelled);
+		QueueInstall(installer, new InstallItem(dlc.AppName, ActionType.Install, location)
+		{
+			ContentOwnerAppName = game.AppName
+		});
+		var completed = WaitForAction(installer, dlc.AppName);
+
+		await installer.StopProcessing();
+		await InvokeHandleInstallationStoppage(installer);
+
+		await completed;
+		Assert.Equal(ActionStatus.Cancelled, cancelled.Status);
+		Assert.Contains(dlc.AppName, installer.GetHistoryItemsNames());
+		Assert.Equal(InstallState.Installed, storage.LocalAppStateDictionary[dlc.AppName].InstallStatus);
+	}
+
+	[Fact]
+	public async Task ImportRegistersDlcWhoseFilesAreAlreadyInTheFolder()
+	{
+		var repository = new ControlledManifestRepository();
+		var storage = new Storage(_logger, _root, Path.Combine(_root, "games"));
+		var location = Path.Combine(_root, "imported");
+		Directory.CreateDirectory(location);
+		var game = CreateGame("game", "Game", "image");
+		storage.SaveMetaData(game);
+		repository.Complete(game.AppName, CreateContentManifest(("base.exe", [])));
+		File.WriteAllBytes(Path.Combine(location, "base.exe"), []);
+		foreach (var (name, present) in new[] { ("present", true), ("absent", false) })
+		{
+			var dlc = CreateGame(name, name, "image");
+			dlc.Metadata.MainGameItem = new MainGameItem { Id = game.Metadata.Id };
+			storage.SaveMetaData(dlc);
+			repository.Complete(name, CreateContentManifest(($"{name}.bin", [])));
+			if (present)
+				File.WriteAllBytes(Path.Combine(location, $"{name}.bin"), []);
+		}
+		var library = CreateLibrary(storage, repository);
+		var installer = new InstallManager(_logger, library, repository, storage,
+			new DownloadManager(_logger, new HttpClient()), new UnusedShortcutManager(), new AllowInstallPermissionChecker());
+		var completed = WaitForAction(installer, game.AppName);
+		installer.AddToQueue(new InstallItem(game.AppName, ActionType.Import, location));
+		await completed;
+
+		Assert.Equal(InstallState.Installed, storage.LocalAppStateDictionary["present"].InstallStatus);
+		Assert.Equal(location, storage.LocalAppStateDictionary["present"].InstallPath);
+		Assert.Equal("1.0", storage.LocalAppStateDictionary["present"].Version);
+		Assert.Equal(InstallState.NotInstalled, storage.LocalAppStateDictionary["absent"].InstallStatus);
+		Assert.Null(storage.LocalAppStateDictionary["absent"].InstallPath);
+	}
+
+	[Fact]
+	public async Task MovingGameMovesDlcInstalledInItsFolder()
+	{
+		var (storage, library, installer, game) = await CreateContentInstallation();
+		var destination = Path.Combine(_root, "moved-game");
+		var completed = WaitForAction(installer, game.AppName);
+		installer.AddToQueue(new InstallItem(game.AppName, ActionType.Move, game.LocalAppState!.InstallPath) { MoveLocation = destination });
+		await completed;
+
+		Assert.Equal(destination, game.LocalAppState.InstallPath);
+		Assert.Equal(destination, storage.LocalAppStateDictionary["dlc"].InstallPath);
+		Assert.True(File.Exists(Path.Combine(destination, "dlc.bin")));
+	}
+
 	private async Task<(Storage Storage, LibraryManager Library, InstallManager Installer, Game Game)> CreateContentInstallation()
 	{
 		var repository = new ControlledManifestRepository();
@@ -467,6 +542,21 @@ public sealed class AppInstallDialogViewModelTests : IDisposable
 			new DownloadManager(_logger, new HttpClient()), new UnusedShortcutManager(), new AllowInstallPermissionChecker());
 		return (storage, library, installer, game);
 	}
+
+	private static void SetCurrentInstall(InstallManager installer, InstallItem item) =>
+		typeof(InstallManager)
+			.GetProperty(nameof(InstallManager.CurrentInstall), BindingFlags.Instance | BindingFlags.Public)!
+			.SetValue(installer, item);
+
+	private static void QueueInstall(InstallManager installer, InstallItem item) =>
+		((List<InstallItem>)typeof(InstallManager)
+			.GetField("_installQueue", BindingFlags.Instance | BindingFlags.NonPublic)!
+			.GetValue(installer)!).Add(item);
+
+	private static Task InvokeHandleInstallationStoppage(InstallManager installer) =>
+		(Task)typeof(InstallManager)
+			.GetMethod("HandleInstallationStoppage", BindingFlags.Instance | BindingFlags.NonPublic)!
+			.Invoke(installer, ["Cancel install"])!;
 
 	private static async Task WaitForAction(InstallManager installer, string appName, ActionStatus expected = ActionStatus.Success)
 	{

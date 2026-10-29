@@ -45,6 +45,71 @@
 			</Grid>
 		</DataTemplate>
 
+		<DataTemplate x:Key="PausedItemTemplate" x:DataType="local:PausedDownloadItem">
+			<Grid ColumnSpacing="16">
+				<Grid.ColumnDefinitions>
+					<ColumnDefinition Width="Auto" />
+					<ColumnDefinition Width="*" />
+					<ColumnDefinition Width="Auto" />
+				</Grid.ColumnDefinitions>
+				<Border
+					Width="48"
+					Height="64"
+					VerticalAlignment="Center"
+					Background="{ThemeResource ControlFillColorSecondaryBrush}"
+					CornerRadius="4">
+					<Image
+						Source="{x:Bind ImageUrl, Converter={StaticResource ImageUrlConverter}}"
+						Stretch="UniformToFill" />
+				</Border>
+				<StackPanel
+					Grid.Column="1"
+					VerticalAlignment="Center"
+					Spacing="4">
+					<TextBlock
+						Style="{StaticResource BodyStrongTextBlockStyle}"
+						Text="{x:Bind Title}"
+						TextTrimming="CharacterEllipsis"
+						TextWrapping="Wrap"
+						MaxLines="1" />
+					<ProgressBar
+						Height="4"
+						Maximum="100"
+						Value="{x:Bind ProgressPercentage}" />
+					<TextBlock
+						Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+						Style="{StaticResource CaptionTextBlockStyle}">
+						<Run Text="Paused - " />
+						<Run Text="{x:Bind SizeText}" />
+					</TextBlock>
+				</StackPanel>
+				<StackPanel
+					Grid.Column="2"
+					VerticalAlignment="Center"
+					Orientation="Horizontal"
+					Spacing="8">
+					<Button
+						Width="36"
+						Height="36"
+						Padding="0"
+						Click="ResumePausedButtonClick"
+						Tag="{x:Bind Name}"
+						ToolTipService.ToolTip="Resume download">
+						<FontIcon FontSize="14" Glyph="&#xE768;" />
+					</Button>
+					<Button
+						Width="36"
+						Height="36"
+						Padding="0"
+						Click="CancelPausedButtonClick"
+						Tag="{x:Bind Name}"
+						ToolTipService.ToolTip="Cancel download">
+						<FontIcon FontSize="14" Glyph="&#xE711;" />
+					</Button>
+				</StackPanel>
+			</Grid>
+		</DataTemplate>
+
 		<Style x:Key="QueueListViewStyle" TargetType="ListView">
 			<Setter Property="SelectionMode" Value="None" />
 			<Setter Property="IsItemClickEnabled" Value="False" />
@@ -62,7 +127,10 @@
 		</Style>
 	</Page.Resources>
 
-	<Grid Margin="36,24,36,36">
+	<ScrollViewer
+		Padding="36,24,36,36"
+		HorizontalScrollBarVisibility="Disabled"
+		VerticalScrollBarVisibility="Auto">
 		<StackPanel Spacing="12">
 			<TextBlock Style="{StaticResource TitleLargeTextBlockStyle}" Text="Downloads" />
 
@@ -183,6 +251,18 @@
 				</StackPanel>
 			</Border>
 
+			<!--  Paused  -->
+			<TextBlock
+				Style="{StaticResource SectionHeaderStyle}"
+				Text="Paused"
+				Visibility="{x:Bind ViewModel.HasPausedItems, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+			<ListView
+				x:Name="PausedInstallsListView"
+				ItemTemplate="{StaticResource PausedItemTemplate}"
+				ItemsSource="{x:Bind ViewModel.PausedItems, Mode=OneWay}"
+				Style="{StaticResource QueueListViewStyle}"
+				Visibility="{x:Bind ViewModel.HasPausedItems, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+
 			<!--  Queue  -->
 			<TextBlock Style="{StaticResource SectionHeaderStyle}" Text="Install Queue" />
 			<ListView
@@ -215,5 +295,5 @@
 				Text="Completed installs will be listed here."
 				Visibility="Collapsed" />
 		</StackPanel>
-	</Grid>
+	</ScrollViewer>
 </Page>

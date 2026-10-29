@@ -1,9 +1,10 @@
 using System;
-using System.Collections.Concurrent;
+using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
+using Crimson.Utils;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Foundation;
 using Windows.Graphics.Imaging;
@@ -13,12 +14,17 @@ namespace Crimson.Controls;
 
 public sealed partial class GameCover : UserControl
 {
-	// Cache the decoded pixels rather than SoftwareBitmapSource instances: those hold
-	// composition surfaces that become invalid once the page that created them is torn
-	// down (e.g. after visiting the WebView2-hosted Store), and reusing them crashes XAML.
-	private static readonly ConcurrentDictionary<string, GrayscalePixels> GrayscaleCache = new();
+	// Covers are shown at 216x290; twice that keeps them sharp on high-DPI screens.
+	private const int RequestWidth = 432;
+	private const int RequestHeight = 580;
+	private const int DisplayWidth = 216;
+	private const int DisplayHeight = 290;
+
+	private static ImageCache? _cache;
+	private static ImageCache Cache => _cache ??= App.GetService<ImageCache>();
 
 	private int _loadVersion;
+	private CancellationTokenSource? _loadCancellation;
 
 	public static readonly DependencyProperty ImageUrlProperty = DependencyProperty.Register(
 		nameof(ImageUrl),
@@ -61,56 +67,85 @@ public sealed partial class GameCover : UserControl
 	private void ApplyImageUrl(string? url)
 	{
 		var version = ++_loadVersion;
-		ColorImage.Source = CreateImage(url);
+		// A recycled card drops the request for the cover it showed before, so scrolling quickly
+		// does not leave the visible cards waiting behind ones that are no longer on screen.
+		_loadCancellation?.Cancel();
+		_loadCancellation = null;
+		ColorImage.Source = null;
 		GrayImage.Source = null;
-		MutedOverlay.Visibility = string.IsNullOrWhiteSpace(url) ? Visibility.Collapsed : Visibility.Visible;
+		MutedOverlay.Visibility = Visibility.Collapsed;
 		UpdateClip();
 
-		if (!string.IsNullOrWhiteSpace(url))
-			_ = LoadGrayscaleAsync(url, version);
+		if (string.IsNullOrWhiteSpace(url) ||
+			!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+			!uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+			return;
+
+		_loadCancellation = new CancellationTokenSource();
+		_ = LoadAsync(url, version, _loadCancellation.Token);
 	}
 
-	private async Task LoadGrayscaleAsync(string url, int version)
+	private async Task LoadAsync(string url, int version, CancellationToken cancellationToken)
 	{
+		string path;
 		try
 		{
-			if (!GrayscaleCache.TryGetValue(url, out var pixels))
-			{
-				pixels = await DecodeGrayscaleAsync(url);
-				GrayscaleCache.TryAdd(url, pixels);
-			}
-
-			if (version != _loadVersion)
-				return;
-
-			using var destination = new SoftwareBitmap(BitmapPixelFormat.Bgra8, pixels.Width, pixels.Height, BitmapAlphaMode.Premultiplied);
-			using (var writer = new DataWriter())
-			{
-				writer.WriteBytes(pixels.Bytes);
-				destination.CopyFromBuffer(writer.DetachBuffer());
-			}
-
-			var imageSource = new SoftwareBitmapSource();
-			await imageSource.SetBitmapAsync(destination);
-
-			if (version == _loadVersion)
-				ApplyGrayscale(imageSource);
+			path = await GetCachedFileAsync(url, cancellationToken);
+		}
+		catch (OperationCanceledException)
+		{
+			return;
 		}
 		catch
 		{
-			// If the cover cannot be decoded, keep the muted overlay so the card still
-			// reads as unavailable instead of showing a broken image.
+			if (version == _loadVersion)
+				MutedOverlay.Visibility = Visibility.Visible;
+			return;
+		}
+
+		if (version != _loadVersion)
+			return;
+
+		try
+		{
+			var color = new BitmapImage
+			{
+				DecodePixelType = DecodePixelType.Logical,
+				DecodePixelWidth = DisplayWidth,
+				DecodePixelHeight = DisplayHeight
+			};
+			using (var stream = File.OpenRead(path).AsRandomAccessStream())
+				await color.SetSourceAsync(stream);
+			if (version != _loadVersion)
+				return;
+			ColorImage.Source = color;
+
+			var gray = await CreateGrayscaleAsync(path);
+			if (version == _loadVersion)
+				GrayImage.Source = gray;
+		}
+		catch
+		{
+			// If the cover cannot be decoded, the muted overlay keeps the card reading as
+			// unavailable instead of showing a broken image.
+			if (version == _loadVersion)
+				MutedOverlay.Visibility = Visibility.Visible;
 		}
 	}
 
-	private static async Task<GrayscalePixels> DecodeGrayscaleAsync(string url)
+	// Original artwork rather than a CDN-resized variant: Epic resizes on a cache miss, which
+	// takes seconds per cover, while originals are served from the edge immediately.
+	private static Task<string> GetCachedFileAsync(string url, CancellationToken cancellationToken) =>
+		Cache.GetAsync(url, cancellationToken);
+
+	private static async Task<SoftwareBitmapSource> CreateGrayscaleAsync(string path)
 	{
-		using var stream = await RandomAccessStreamReference.CreateFromUri(new Uri(url)).OpenReadAsync();
+		using var stream = File.OpenRead(path).AsRandomAccessStream();
 		var decoder = await BitmapDecoder.CreateAsync(stream);
 		var transform = new BitmapTransform
 		{
-			ScaledWidth = 320,
-			ScaledHeight = 430,
+			ScaledWidth = RequestWidth,
+			ScaledHeight = RequestHeight,
 			InterpolationMode = BitmapInterpolationMode.Fant
 		};
 		using var source = await decoder.GetSoftwareBitmapAsync(
@@ -120,12 +155,10 @@ public sealed partial class GameCover : UserControl
 			ExifOrientationMode.IgnoreExifOrientation,
 			ColorManagementMode.DoNotColorManage);
 
-		var width = source.PixelWidth;
-		var height = source.PixelHeight;
-		var bytes = new byte[width * height * 4];
-		var inputBuffer = new Windows.Storage.Streams.Buffer((uint)bytes.Length) { Length = (uint)bytes.Length };
-		source.CopyToBuffer(inputBuffer);
-		using (var reader = DataReader.FromBuffer(inputBuffer))
+		var bytes = new byte[source.PixelWidth * source.PixelHeight * 4];
+		var buffer = new Windows.Storage.Streams.Buffer((uint)bytes.Length) { Length = (uint)bytes.Length };
+		source.CopyToBuffer(buffer);
+		using (var reader = DataReader.FromBuffer(buffer))
 			reader.ReadBytes(bytes);
 
 		for (var i = 0; i < bytes.Length; i += 4)
@@ -136,13 +169,19 @@ public sealed partial class GameCover : UserControl
 			bytes[i + 2] = luminance;
 		}
 
-		return new GrayscalePixels(bytes, width, height);
-	}
+		using var destination = new SoftwareBitmap(
+			BitmapPixelFormat.Bgra8, source.PixelWidth, source.PixelHeight, BitmapAlphaMode.Premultiplied);
+		using (var writer = new DataWriter())
+		{
+			writer.WriteBytes(bytes);
+			destination.CopyFromBuffer(writer.DetachBuffer());
+		}
 
-	private void ApplyGrayscale(SoftwareBitmapSource imageSource)
-	{
-		GrayImage.Source = imageSource;
-		MutedOverlay.Visibility = Visibility.Collapsed;
+		// A fresh SoftwareBitmapSource per card: those hold composition surfaces that become
+		// invalid once the page that created them is torn down, so they must not be shared.
+		var imageSource = new SoftwareBitmapSource();
+		await imageSource.SetBitmapAsync(destination);
+		return imageSource;
 	}
 
 	private void Root_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateClip();
@@ -155,22 +194,4 @@ public sealed partial class GameCover : UserControl
 		var reveal = Math.Clamp(ColorReveal, 0d, 1d);
 		ColorClip.Rect = new Rect(0, 0, Root.ActualWidth * reveal, Root.ActualHeight);
 	}
-
-	private static ImageSource? CreateImage(string? url)
-	{
-		if (string.IsNullOrWhiteSpace(url) ||
-			!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
-			!uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-			return null;
-
-		return new BitmapImage
-		{
-			DecodePixelType = DecodePixelType.Logical,
-			DecodePixelWidth = 216,
-			DecodePixelHeight = 290,
-			UriSource = uri
-		};
-	}
-
-	private sealed record GrayscalePixels(byte[] Bytes, int Width, int Height);
 }

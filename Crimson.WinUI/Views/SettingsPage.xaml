@@ -52,8 +52,8 @@
 
 				<TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Appearance" />
 
-				<toolkit:SettingsCard Description="Enable the mica effects available on Windows 11" Header="Enable Mica">
-					<ToggleSwitch IsOn="{x:Bind ViewModel.MicaEnabled, Mode=TwoWay}" />
+				<toolkit:SettingsCard Description="Blur the sidebar, search results and dialogs, and use the Windows 11 backdrop" Header="Enable Acrylic">
+					<ToggleSwitch IsOn="{x:Bind ViewModel.AcrylicEnabled, Mode=TwoWay}" />
 				</toolkit:SettingsCard>
 
 				<TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Accounts" />
@@ -79,6 +79,16 @@
 							IsClickEnabled="True" />
 					</toolkit:SettingsExpander.Items>
 				</toolkit:SettingsExpander>
+
+				<TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="About" />
+
+				<toolkit:SettingsCard
+					ActionIcon="{ui:FontIcon Glyph=&#xE8A7;}"
+					Click="SourceCodeCard_Click"
+					Description="https://github.com/TheBlueLines/Crimson"
+					Header="Source code on GitHub"
+					HeaderIcon="{ui:FontIcon Glyph=&#xE943;}"
+					IsClickEnabled="True" />
 
 			</StackPanel>
 

@@ -1,4 +1,6 @@
-﻿using Crimson.ViewModels;
+﻿using System;
+using Crimson.ViewModels;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
 namespace Crimson.Views
@@ -15,5 +17,10 @@ namespace Crimson.Views
 			InitializeComponent();
 			DataContext = App.GetService<SettingsViewModel>();
 		}
+
+		private static readonly Uri SourceCodeUri = new("https://github.com/TheBlueLines/Crimson");
+
+		private async void SourceCodeCard_Click(object sender, RoutedEventArgs e) =>
+			await Windows.System.Launcher.LaunchUriAsync(SourceCodeUri);
 	}
 }

@@ -83,12 +83,13 @@ internal static class JsonManifestReader
 		var chunkSha = GetRequiredObject(root, "ChunkShaList");
 		var chunkGroups = GetRequiredObject(root, "DataGroupList");
 		var chunkFileSizes = GetRequiredObject(root, "ChunkFilesizeList");
-		if (chunkHashes.EnumerateObject().Count() > EpicProtocolLimits.MaximumChunkCount)
-			throw new InvalidDataException("JSON manifest chunk count exceeds the supported limit.");
 
 		var cdl = new CDL(manifestVersion) { Version = 0 };
 		foreach (var hashProperty in chunkHashes.EnumerateObject())
 		{
+			if (cdl.Elements.Count >= EpicProtocolLimits.MaximumChunkCount)
+				throw new InvalidDataException("JSON manifest chunk count exceeds the supported limit.");
+
 			var guid = ParseGuid(hashProperty.Name);
 			var guidText = hashProperty.Name;
 			if (!chunkSha.TryGetProperty(guidText, out var shaElement) ||
@@ -176,12 +177,17 @@ internal static class JsonManifestReader
 		var customFields = new CustomFields { Version = 0 };
 		if (root.TryGetProperty("CustomFields", out var customElement))
 		{
-			if (customElement.ValueKind != JsonValueKind.Object ||
-				customElement.EnumerateObject().Count() > EpicProtocolLimits.MaximumCustomFields)
+			if (customElement.ValueKind != JsonValueKind.Object)
 				throw new InvalidDataException("JSON custom fields are invalid.");
+
+			var fieldCount = 0;
 			foreach (var property in customElement.EnumerateObject())
+			{
+				if (++fieldCount > EpicProtocolLimits.MaximumCustomFields)
+					throw new InvalidDataException("JSON custom fields are invalid.");
 				customFields[property.Name] = GetBoundedString(property.Value, "CustomFields");
-			customFields.Count = customElement.EnumerateObject().Count();
+			}
+			customFields.Count = fieldCount;
 		}
 
 		return new Manifest
@@ -238,14 +244,18 @@ internal static class JsonManifestReader
 	{
 		if (value.Length != 32)
 			throw new InvalidDataException("JSON chunk GUID length is invalid.");
+
+		var guid = new int[4];
 		try
 		{
-			return Enumerable.Range(0, 4)
-				.Select(index => unchecked((int)uint.Parse(
+			for (var index = 0; index < guid.Length; index++)
+			{
+				guid[index] = unchecked((int)uint.Parse(
 					value.AsSpan(index * 8, 8),
 					NumberStyles.HexNumber,
-					CultureInfo.InvariantCulture)))
-				.ToArray();
+					CultureInfo.InvariantCulture));
+			}
+			return guid;
 		}
 		catch (FormatException exception)
 		{
@@ -281,17 +291,42 @@ internal static class JsonManifestReader
 		return bytes;
 	}
 
-	private static byte DecodeByteString(string value) => DecodeDecimalBytes(value, 1)[0];
-
-	private static int DecodeInt32(string value)
+	private static byte DecodeByteString(string value)
 	{
-		var bytes = DecodeDecimalBytes(value, 4);
-		return BitConverter.ToInt32(bytes);
+		if (value.Length != 3)
+			throw new InvalidDataException("JSON byte string length is invalid.");
+		if (!byte.TryParse(value.AsSpan(0, 3), NumberStyles.None, CultureInfo.InvariantCulture, out var result))
+			throw new InvalidDataException("JSON byte string is invalid.");
+		return result;
 	}
 
-	private static long DecodeInt64(string value)
+	private static int DecodeInt32(ReadOnlySpan<char> value)
 	{
-		var bytes = DecodeDecimalBytes(value, 8);
-		return BitConverter.ToInt64(bytes);
+		if (value.Length != 4 * 3)
+			throw new InvalidDataException("JSON byte string length is invalid.");
+
+		var result = 0;
+		for (var index = 0; index < 4; index++)
+		{
+			if (!byte.TryParse(value.Slice(index * 3, 3), NumberStyles.None, CultureInfo.InvariantCulture, out var part))
+				throw new InvalidDataException("JSON byte string is invalid.");
+			result |= part << (index * 8);
+		}
+		return result;
+	}
+
+	private static long DecodeInt64(ReadOnlySpan<char> value)
+	{
+		if (value.Length != 8 * 3)
+			throw new InvalidDataException("JSON byte string length is invalid.");
+
+		var result = 0L;
+		for (var index = 0; index < 8; index++)
+		{
+			if (!byte.TryParse(value.Slice(index * 3, 3), NumberStyles.None, CultureInfo.InvariantCulture, out var part))
+				throw new InvalidDataException("JSON byte string is invalid.");
+			result |= (long)part << (index * 8);
+		}
+		return result;
 	}
 }

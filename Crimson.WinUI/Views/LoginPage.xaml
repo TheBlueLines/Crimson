@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
+﻿<?xml version="1.0" encoding="utf-8" ?>
 <Page
 	x:Class="Crimson.Views.LoginPage"
 	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -11,5 +11,14 @@
 	mc:Ignorable="d">
 
 	<!-- The WebView2 is created in code: Close() disposes it permanently, so signing back in needs a new one. -->
-	<Grid x:Name="WebViewHost" />
+	<Grid>
+		<Grid x:Name="WebViewHost" />
+		<!-- Shown while the exchange code is redeemed: Epic's page shows a launcher error once it hands the code over. -->
+		<ProgressRing
+			x:Name="SigningInIndicator"
+			Width="48"
+			Height="48"
+			IsActive="False"
+			Visibility="Collapsed" />
+	</Grid>
 </Page>

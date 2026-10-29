@@ -1,5 +1,9 @@
 ﻿using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using Crimson.Core;
+using Crimson.Models;
+using Crimson.Utils;
 using Serilog;
 
 namespace Crimson.Tests;
@@ -143,6 +147,69 @@ public sealed class DownloadManagerTests
 	}
 
 	[Fact]
+	public async Task DownloadFileWithFallback_AcceptsChunkWhenManifestSizeLagsHeaderRevision()
+	{
+		var payload = Encoding.ASCII.GetBytes("chunk payload with a revised header");
+		var chunkBytes = CreateChunk(payload);
+		var expectedChunk = CreateChunkInfo(payload, fileSize: chunkBytes.Length - 4);
+		using var client = new HttpClient(new StubHttpMessageHandler((_, _) =>
+			Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+			{
+				Content = new ByteArrayContent(chunkBytes)
+			})));
+		using var logger = new LoggerConfiguration().CreateLogger();
+		var manager = new DownloadManager(logger, client);
+		await manager.InitializeMirrors(["https://first.epicgamescdn.com"]);
+		var destination = CreateDestination();
+
+		try
+		{
+			var success = await manager.DownloadFileWithFallback(
+				"one.chunk",
+				destination,
+				expectedSize: expectedChunk.FileSize,
+				expectedChunk: expectedChunk);
+
+			Assert.True(success);
+			Assert.Equal(chunkBytes, await File.ReadAllBytesAsync(destination));
+			Assert.False(File.Exists(destination + ".partial"));
+		}
+		finally
+		{
+			DeleteDestinationDirectory(destination);
+		}
+	}
+
+	[Fact]
+	public async Task DownloadFileWithFallback_RejectsNonChunkBodyDespiteExpectedChunk()
+	{
+		var expectedChunk = CreateChunkInfo(Encoding.ASCII.GetBytes("expected"), fileSize: 4);
+		using var client = new HttpClient(new StubHttpMessageHandler((_, _) =>
+			Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+			{
+				Content = new ByteArrayContent([1, 2, 3, 4, 5])
+			})));
+		using var logger = new LoggerConfiguration().CreateLogger();
+		var manager = new DownloadManager(logger, client);
+		await manager.InitializeMirrors(["https://first.epicgamescdn.com"]);
+		var destination = CreateDestination();
+
+		try
+		{
+			var success = await manager.DownloadFileWithFallback(
+				"one.chunk", destination, maxRetries: 1,
+				expectedSize: expectedChunk.FileSize, expectedChunk: expectedChunk);
+
+			Assert.False(success);
+			Assert.False(File.Exists(destination));
+		}
+		finally
+		{
+			DeleteDestinationDirectory(destination);
+		}
+	}
+
+	[Fact]
 	public async Task DownloadFileWithFallback_FailedAttemptDoesNotReplaceExistingDestination()
 	{
 		using var client = new HttpClient(new StubHttpMessageHandler((_, _) =>
@@ -195,6 +262,37 @@ public sealed class DownloadManagerTests
 		{
 			DeleteDestinationDirectory(destination);
 		}
+	}
+
+	private static ChunkInfo CreateChunkInfo(byte[] payload, long fileSize) => new()
+	{
+		Guid = [1, 2, 3, 4],
+		Hash = unchecked((long)RollingHash.ComputeHash(payload)),
+		ShaHash = SHA1.HashData(payload),
+		WindowSize = payload.Length,
+		FileSize = fileSize
+	};
+
+	private static byte[] CreateChunk(byte[] payload)
+	{
+		const uint headerSize = 66;
+		using var stream = new MemoryStream();
+		using var writer = new BinaryWriter(stream);
+		writer.Write(0xB1FE3AA2u);
+		writer.Write(3u);
+		writer.Write(headerSize);
+		writer.Write((uint)payload.Length);
+		writer.Write(1u);
+		writer.Write(2u);
+		writer.Write(3u);
+		writer.Write(4u);
+		writer.Write(RollingHash.ComputeHash(payload));
+		writer.Write((byte)0);
+		writer.Write(SHA1.HashData(payload));
+		writer.Write((byte)2);
+		writer.Write((uint)payload.Length);
+		writer.Write(payload);
+		return stream.ToArray();
 	}
 
 	private static string CreateDestination() =>

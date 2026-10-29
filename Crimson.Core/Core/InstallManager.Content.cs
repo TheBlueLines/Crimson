@@ -117,17 +117,18 @@ public partial class InstallManager
 		if (added.Count > 0)
 		{
 			await _downloadManager.InitializeMirrors(game.LocalAppState.BaseUrls ?? game.BaseUrls);
-			GetChunksToDownloadFiltered(manifest, added);
+			await PlanFilesAsync(manifest, added);
 		}
 	}
 
 	private async Task<Manifest> ExcludeSharedContent(InstallItem install, Manifest removed)
 	{
 		var protectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		var installPath = Path.GetFullPath(install.Location);
 		foreach (var state in _storage.LocalAppStateDictionary.Values.Where(state =>
 			state.AppName != install.AppName && state.InstallStatus != InstallState.NotInstalled &&
 			!string.IsNullOrWhiteSpace(state.InstallPath) &&
-			string.Equals(Path.GetFullPath(state.InstallPath), Path.GetFullPath(install.Location), StringComparison.OrdinalIgnoreCase)).ToList())
+			string.Equals(Path.GetFullPath(state.InstallPath), installPath, StringComparison.OrdinalIgnoreCase)).ToList())
 		{
 			var manifest = Manifest.ReadAll(await GetInstalledManifestBytes(state.AppName));
 			foreach (var file in InstalledContentSelection.Filter(manifest.FileManifestList.Elements, state.SelectedInstallTags))

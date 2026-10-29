@@ -18,6 +18,10 @@ namespace Crimson.Core;
 
 public class LibraryManager
 {
+	private static readonly Regex UnrealEngineBuildVersionPattern = new(
+		@".*UE.*Windows",
+		RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
 	private readonly ILogger _log;
 	private readonly IStoreRepository _storeRepository;
 	private readonly Storage _storage;
@@ -26,8 +30,13 @@ public class LibraryManager
 	public event Action<IEnumerable<Game>> LibraryUpdated;
 	public event Action<Game> GameStatusUpdated;
 
-	private readonly ConcurrentDictionary<string, byte> _runningApps = new();
+	private static readonly TimeSpan GracefulStopTimeout = TimeSpan.FromSeconds(20);
+	private static readonly TimeSpan ForcedStopTimeout = TimeSpan.FromSeconds(10);
+
+	private readonly ConcurrentDictionary<string, int> _runningApps = new();
+	private readonly ConcurrentDictionary<string, byte> _stoppingApps = new();
 	public bool IsAppRunning(string appName) => _runningApps.ContainsKey(appName);
+	public bool IsAppStopping(string appName) => _stoppingApps.ContainsKey(appName);
 
 	private DateTime _lastUpdateDateTime = DateTime.MinValue;
 	private readonly SemaphoreSlim _updateGate = new(1, 1);
@@ -196,12 +205,16 @@ public class LibraryManager
 		UserData userData,
 		string? ownershipTokenPath)
 	{
+		var executable = InstallPathPolicy.ResolveFile(gameInfo.InstallPath, gameInfo.Executable);
 		var startInfo = new ProcessStartInfo
 		{
-			FileName = InstallPathPolicy.ResolveFile(gameInfo.InstallPath, gameInfo.Executable),
+			FileName = executable,
 			Arguments = BuildLaunchArguments(gameInfo, game, exchangeCode, userData, ownershipTokenPath),
 			UseShellExecute = false,
-			WorkingDirectory = gameInfo.InstallPath
+			// Start in the executable's folder like the Epic Games Launcher does. Games such as
+			// Fortnite look for helpers (the Easy Anti-Cheat installer) relative to it and quit
+			// when started from the install root.
+			WorkingDirectory = Path.GetDirectoryName(executable) ?? gameInfo.InstallPath
 		};
 
 		var process = new Process { StartInfo = startInfo };
@@ -212,7 +225,8 @@ public class LibraryManager
 			return false;
 		}
 
-		_runningApps.TryAdd(game.AppName, 0);
+		_log.Information("LaunchApp: Started {AppName} ({Executable})", game.AppName, executable);
+		_runningApps.TryAdd(game.AppName, process.Id);
 		_ = ObserveGameExitAsync(process, game, ownershipTokenPath);
 		GameStatusUpdated?.Invoke(game);
 		return true;
@@ -293,6 +307,7 @@ public class LibraryManager
 		try
 		{
 			await process.WaitForExitAsync();
+			_log.Information("LaunchApp: {AppName} exited with code {ExitCode}", game.AppName, process.ExitCode);
 		}
 		catch (Exception ex)
 		{
@@ -304,6 +319,61 @@ public class LibraryManager
 			DeleteOwnershipToken(path);
 			_runningApps.TryRemove(game.AppName, out _);
 			GameStatusUpdated?.Invoke(game);
+		}
+	}
+
+	/// <summary>
+	/// Stops a game started by <see cref="LaunchApp"/>. Every game process is first asked to close
+	/// its window, the same as clicking its close button, so it can save and shut down cleanly.
+	/// Only processes still running after <see cref="GracefulStopTimeout"/> are terminated.
+	/// </summary>
+	public async Task<bool> StopApp(string appName)
+	{
+		if (!_runningApps.TryGetValue(appName, out var rootId) || !_stoppingApps.TryAdd(appName, 0))
+			return false;
+
+		var game = _storage.GetGameMetaData(appName);
+		if (game is not null)
+			GameStatusUpdated?.Invoke(game);
+
+		var processes = new List<Process>();
+		try
+		{
+			_storage.LocalAppStateDictionary.TryGetValue(appName, out var appState);
+			processes = GameProcesses.Find(rootId, appState?.InstallPath);
+			if (processes.Count == 0)
+				return true;
+
+			var closeRequested = processes.Count(GameProcesses.RequestClose);
+			_log.Information("StopApp: Asked {AppName} to close ({Requested} of {Count} process(es) have a window)",
+				appName, closeRequested, processes.Count);
+			if (closeRequested > 0 && await GameProcesses.WaitForExitAsync(processes, GracefulStopTimeout))
+			{
+				_log.Information("StopApp: {AppName} closed", appName);
+				return true;
+			}
+
+			_log.Warning("StopApp: {AppName} did not close in time; terminating it", appName);
+			foreach (var process in processes)
+				GameProcesses.Kill(process);
+
+			var stopped = await GameProcesses.WaitForExitAsync(processes, ForcedStopTimeout);
+			if (!stopped)
+				_log.Error("StopApp: {AppName} is still running after termination", appName);
+			return stopped;
+		}
+		catch (Exception ex)
+		{
+			_log.Error(ex, "StopApp failed for {AppName}", appName);
+			return false;
+		}
+		finally
+		{
+			foreach (var process in processes)
+				process.Dispose();
+			_stoppingApps.TryRemove(appName, out _);
+			if (game is not null)
+				GameStatusUpdated?.Invoke(game);
 		}
 	}
 
@@ -417,12 +487,16 @@ public class LibraryManager
 		IEnumerable<FetchListItem> fetchList,
 		IReadOnlyList<Asset> gameAssets)
 	{
+		var assetsByAppName = new Dictionary<string, Asset>(gameAssets.Count, StringComparer.Ordinal);
+		foreach (var asset in gameAssets)
+			assetsByAppName[asset.AppName] = asset;
+
 		var fetchedGames = new ConcurrentBag<Game>();
 		var options = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
 		await Parallel.ForEachAsync(fetchList, options, async (item, _) =>
 		{
 			var metadata = await _storeRepository.FetchGameMetaData(item.NameSpace, item.CatalogItemId);
-			if (metadata is null)
+			if (metadata is null || !assetsByAppName.TryGetValue(item.AppName, out var asset))
 				return;
 
 			fetchedGames.Add(new Game
@@ -431,7 +505,7 @@ public class LibraryManager
 				AppTitle = metadata.Title,
 				AssetInfos = new AssetInfos
 				{
-					Windows = gameAssets.First(asset => asset.AppName == item.AppName)
+					Windows = asset
 				},
 				Metadata = metadata
 			});
@@ -441,7 +515,8 @@ public class LibraryManager
 	}
 
 	private static bool IsUnrealEngineAsset(Asset asset) =>
-		asset.Namespace.Contains("ue") || Regex.IsMatch(asset.BuildVersion, @".*UE.*Windows");
+		asset.Namespace.Contains("ue", StringComparison.Ordinal) ||
+		UnrealEngineBuildVersionPattern.IsMatch(asset.BuildVersion);
 
 	internal static IReadOnlyList<Game> SelectOwnedGames(
 		IEnumerable<Asset> assets,
@@ -460,13 +535,16 @@ public class LibraryManager
 	/// </summary>
 	private void CheckForGameUpdates(List<Asset> gameAssetsList)
 	{
+		var assetsByAppName = new Dictionary<string, Asset>(gameAssetsList.Count, StringComparer.Ordinal);
+		foreach (var asset in gameAssetsList)
+			assetsByAppName[asset.AppName] = asset;
+
 		foreach (var (appName, localAppState) in _storage.LocalAppStateDictionary)
 		{
 			if (localAppState.InstallStatus != InstallState.Installed)
 				continue;
 
-			var asset = gameAssetsList.FirstOrDefault(a => a.AppName == appName);
-			if (asset == null) continue;
+			if (!assetsByAppName.TryGetValue(appName, out var asset)) continue;
 
 			if (!string.IsNullOrEmpty(localAppState.Version) &&
 				localAppState.Version != asset.BuildVersion)

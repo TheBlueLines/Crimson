@@ -64,6 +64,18 @@ public sealed partial class DownloadsPage : Page
 
 	private void History_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => RefreshEmptyHints();
 
+	private void ResumePausedButtonClick(object sender, RoutedEventArgs e)
+	{
+		if ((sender as FrameworkElement)?.Tag is string name)
+			ViewModel.ResumePausedGame(name);
+	}
+
+	private void CancelPausedButtonClick(object sender, RoutedEventArgs e)
+	{
+		if ((sender as FrameworkElement)?.Tag is string name)
+			ViewModel.CancelPausedGame(name);
+	}
+
 	private void RefreshEmptyHints()
 	{
 		QueueEmptyHint.Visibility = ViewModel.QueueItems is { Count: > 0 } ? Visibility.Collapsed : Visibility.Visible;

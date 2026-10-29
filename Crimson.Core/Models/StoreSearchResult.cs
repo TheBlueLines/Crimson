@@ -89,6 +89,8 @@ public sealed class StoreOfferDetails
 	public string? Publisher { get; init; }
 	public DateTimeOffset? ReleaseDate { get; init; }
 	public bool IsCodeRedemptionOnly { get; init; }
+	/// <summary>Epic's refund policy code, e.g. SELF_REFUNDABLE or NON_REFUNDABLE.</summary>
+	public string? RefundType { get; init; }
 	public IReadOnlyList<string> GalleryImageUrls { get; init; } = [];
 	public IReadOnlyList<string> Tags { get; init; } = [];
 }

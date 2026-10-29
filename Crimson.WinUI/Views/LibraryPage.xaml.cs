@@ -41,7 +41,7 @@ public sealed partial class LibraryPage : Page
 		navControl.Navigate(typeof(GameInfoPage), game.Name);
 	}
 
-	private static Frame FindParentFrame(DependencyObject child)
+	private static Frame? FindParentFrame(DependencyObject child)
 	{
 		var parent = VisualTreeHelper.GetParent(child);
 

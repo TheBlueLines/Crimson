@@ -71,6 +71,7 @@ internal static class StoreCatalogParser
 			Developer = GetString(offer, "developerDisplayName") ?? GetCustomAttribute(offer, "developerName"),
 			Publisher = GetString(offer, "publisherDisplayName") ?? GetCustomAttribute(offer, "publisherName"),
 			ReleaseDate = GetDate(offer, "releaseDate") ?? summary.EffectiveDate,
+			RefundType = GetString(offer, "refundType"),
 			IsCodeRedemptionOnly = TryGetProperty(offer, "isCodeRedemptionOnly", out var redemption) &&
 								   redemption.ValueKind == JsonValueKind.True,
 			GalleryImageUrls = GetImageUrls(offer, GalleryImageTypes),
@@ -102,6 +103,209 @@ internal static class StoreCatalogParser
 
 		return new StoreOfferReference { Namespace = nameSpace, OfferId = offerId };
 	}
+
+	/// <summary>
+	/// Reads the combined product page query. Epic answers each part on its own, so a part that
+	/// errored comes back null next to the others; only a response without any data is an error.
+	/// </summary>
+	public static StoreProductPageInfo ParseProductPage(string json)
+	{
+		using var document = ParseDocument(json);
+		var root = document.RootElement;
+		if (!TryGetProperty(root, "data", out var data) || data.ValueKind != JsonValueKind.Object)
+		{
+			ThrowIfGraphQlErrors(root);
+			return StoreProductPageInfo.Empty;
+		}
+
+		var media = new List<StoreMediaItem>();
+		var requirements = new List<StoreRequirement>();
+		var socialLinks = new List<StoreSocialLink>();
+		IReadOnlyList<string> audio = [];
+		IReadOnlyList<string> text = [];
+		string? longDescription = null;
+		if (TryGetPath(data, out var configurations, "Product", "sandbox", "configuration") &&
+			configurations.ValueKind == JsonValueKind.Array)
+		{
+			foreach (var configuration in configurations.EnumerateArray())
+			{
+				if (!TryGetProperty(configuration, "configs", out var configs) || configs.ValueKind != JsonValueKind.Object)
+					continue;
+
+				longDescription ??= NullIfBlank(GetString(configs, "longDescription"));
+				ReadMedia(configs, media);
+				ReadRequirements(configs, requirements);
+				ReadSocialLinks(configs, socialLinks);
+				if (audio.Count == 0)
+					audio = GetStrings(configs, "supportedAudio");
+				if (text.Count == 0)
+					text = GetStrings(configs, "supportedText");
+			}
+		}
+
+		var addOns = new List<StoreSearchResult>();
+		if (TryGetPath(data, out var elements, "Catalog", "searchStore", "elements") &&
+			elements.ValueKind == JsonValueKind.Array)
+		{
+			foreach (var element in elements.EnumerateArray())
+			{
+				var offer = ParseOffer(element);
+				if (offer is not null)
+					addOns.Add(offer);
+			}
+		}
+
+		return new StoreProductPageInfo
+		{
+			Media = media,
+			LongDescription = longDescription,
+			Requirements = requirements,
+			AudioLanguages = audio,
+			TextLanguages = text,
+			SocialLinks = socialLinks,
+			PlayerRating = ReadPlayerRating(data),
+			CriticRating = ReadCriticRating(data),
+			AddOns = addOns
+		};
+	}
+
+	private static void ReadMedia(JsonElement configs, List<StoreMediaItem> media)
+	{
+		if (!TryGetProperty(configs, "keyImages", out var images) || images.ValueKind != JsonValueKind.Array)
+			return;
+
+		foreach (var image in images.EnumerateArray())
+		{
+			var type = GetString(image, "type");
+			var url = GetString(image, "url");
+			if (string.IsNullOrWhiteSpace(url))
+				continue;
+
+			if (Array.IndexOf(GalleryImageTypes, type) >= 0 && IsHttpsUrl(url))
+			{
+				if (!media.Exists(item => item.ImageUrl == url))
+					media.Add(new StoreMediaItem(url, IsVideo: false));
+				continue;
+			}
+
+			// Videos use com.epicgames.video://<id>?cover=<https picture>; only the cover is playable here.
+			if (url.StartsWith("com.epicgames.video://", StringComparison.OrdinalIgnoreCase) &&
+				Uri.TryCreate(url, UriKind.Absolute, out var videoUri))
+			{
+				var cover = GetQueryValue(videoUri, "cover");
+				if (IsHttpsUrl(cover) && !media.Exists(item => item.ImageUrl == cover))
+					media.Add(new StoreMediaItem(cover!, IsVideo: true));
+			}
+		}
+	}
+
+	private static void ReadRequirements(JsonElement configs, List<StoreRequirement> requirements)
+	{
+		if (!TryGetPath(configs, out var rows, "technicalRequirements", "windows") || rows.ValueKind != JsonValueKind.Array)
+			return;
+
+		foreach (var row in rows.EnumerateArray())
+		{
+			var title = GetString(row, "title")?.Trim();
+			var minimum = GetString(row, "minimum")?.Trim() ?? string.Empty;
+			var recommended = GetString(row, "recommended")?.Trim() ?? string.Empty;
+			if (string.IsNullOrWhiteSpace(title) || (minimum.Length == 0 && recommended.Length == 0))
+				continue;
+
+			requirements.Add(new StoreRequirement(title, minimum, recommended));
+		}
+	}
+
+	private static void ReadSocialLinks(JsonElement configs, List<StoreSocialLink> links)
+	{
+		if (!TryGetProperty(configs, "socialLinks", out var items) || items.ValueKind != JsonValueKind.Array)
+			return;
+
+		foreach (var item in items.EnumerateArray())
+		{
+			var platform = GetString(item, "platform");
+			var url = GetString(item, "url");
+			if (string.IsNullOrWhiteSpace(platform) || !IsHttpsUrl(url))
+				continue;
+
+			// Epic names them linkTwitter, linkDiscord, ...; show the network's name.
+			var name = platform.StartsWith("link", StringComparison.OrdinalIgnoreCase) && platform.Length > 4
+				? platform[4..]
+				: platform;
+			links.Add(new StoreSocialLink(char.ToUpperInvariant(name[0]) + name[1..], new Uri(url!)));
+		}
+	}
+
+	private static StorePlayerRating? ReadPlayerRating(JsonElement data)
+	{
+		if (!TryGetPath(data, out var result, "RatingsPolls", "getProductResult") ||
+			!TryGetProperty(result, "averageRating", out var average) ||
+			average.ValueKind != JsonValueKind.Number ||
+			!average.TryGetDouble(out var value) || value <= 0)
+			return null;
+
+		var highlights = new List<StoreRatingHighlight>();
+		if (TryGetProperty(result, "pollResult", out var polls) && polls.ValueKind == JsonValueKind.Array)
+		{
+			foreach (var poll in polls.EnumerateArray())
+			{
+				if (!TryGetProperty(poll, "localizations", out var localization))
+					continue;
+				var title = GetString(localization, "resultTitle");
+				if (!string.IsNullOrWhiteSpace(title))
+					highlights.Add(new StoreRatingHighlight(GetString(localization, "resultText") ?? string.Empty, title));
+			}
+		}
+
+		return new StorePlayerRating(Math.Round(value, 1), highlights);
+	}
+
+	private static StoreCriticRating? ReadCriticRating(JsonElement data)
+	{
+		if (!TryGetPath(data, out var reviews, "OpenCritic", "productReviews") || reviews.ValueKind != JsonValueKind.Object)
+			return null;
+
+		var score = GetPositiveInt(reviews, "openCriticScore");
+		var recommended = GetPositiveInt(reviews, "percentRecommended");
+		var award = NullIfBlank(GetString(reviews, "award"));
+		return score is null && recommended is null ? null : new StoreCriticRating(score, recommended, award);
+	}
+
+	private static int? GetPositiveInt(JsonElement element, string propertyName) =>
+		TryGetProperty(element, propertyName, out var property) &&
+		property.ValueKind == JsonValueKind.Number &&
+		property.TryGetDouble(out var value) && value > 0
+			? (int)Math.Round(value)
+			: null;
+
+	private static IReadOnlyList<string> GetStrings(JsonElement element, string propertyName)
+	{
+		if (!TryGetProperty(element, propertyName, out var array) || array.ValueKind != JsonValueKind.Array)
+			return [];
+
+		var values = new List<string>();
+		foreach (var item in array.EnumerateArray())
+		{
+			if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+				values.Add(item.GetString()!.Trim());
+		}
+
+		return values;
+	}
+
+	private static string? GetQueryValue(Uri uri, string name)
+	{
+		foreach (var pair in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+		{
+			var separator = pair.IndexOf('=');
+			if (separator > 0 && string.Equals(pair[..separator], name, StringComparison.OrdinalIgnoreCase))
+				return Uri.UnescapeDataString(pair[(separator + 1)..]);
+		}
+
+		return null;
+	}
+
+	private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
 	private static StoreSearchResult? ParseOffer(JsonElement element)
 	{

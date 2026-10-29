@@ -11,12 +11,12 @@ namespace Crimson.ViewModels
 		private readonly AuthManager _authManager;
 		private readonly IFolderLauncher _folderLauncher;
 
-		public bool MicaEnabled
+		public bool AcrylicEnabled
 		{
-			get => _settingsManager.MicEnabled;
+			get => _settingsManager.AcrylicEnabled;
 			set
 			{
-				_settingsManager.MicEnabled = value;
+				_settingsManager.AcrylicEnabled = value;
 				OnPropertyChanged();
 				_ = SaveSettingsAsync();
 			}

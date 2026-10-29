@@ -88,10 +88,62 @@ internal sealed class EpicStoreCatalog : IStoreCatalog
 					longDescription
 					releaseDate
 					isCodeRedemptionOnly
+					refundType
 					developerDisplayName
 					publisherDisplayName
 					customAttributes { key value }
 					tags { name groupName }
+				}
+			}
+		}
+		""";
+
+	// Everything else the web product page shows, in one request. Epic resolves each part on its
+	// own, so a product without ratings or a critic score still returns the rest.
+	private const string ProductPageQuery = $$"""
+		query getProductPage($sandboxId: String!, $locale: String!, $country: String!, $sku: String!) {
+			Product {
+				sandbox(sandboxId: $sandboxId) {
+					configuration(locale: $locale) {
+						... on StoreConfiguration {
+							configs {
+								technicalRequirements { windows { title minimum recommended } }
+								socialLinks { platform url }
+								supportedAudio
+								supportedText
+							}
+						}
+						... on HomeConfiguration {
+							configs {
+								keyImages { ... on KeyImage { type url } }
+								longDescription
+							}
+						}
+					}
+				}
+			}
+			RatingsPolls {
+				getProductResult(sandboxId: $sandboxId, locale: $locale) {
+					averageRating
+					pollResult { localizations { resultTitle resultText } }
+				}
+			}
+			OpenCritic {
+				productReviews(sku: $sku) { openCriticScore percentRecommended award }
+			}
+			Catalog {
+				searchStore(
+					namespace: $sandboxId,
+					category: "addons|digitalextras",
+					count: 40,
+					country: $country,
+					locale: $locale,
+					sortBy: "releaseDate",
+					sortDir: "DESC"
+				) {
+					elements {
+						{{OfferFields}}
+					}
 				}
 			}
 		}
@@ -166,6 +218,26 @@ internal sealed class EpicStoreCatalog : IStoreCatalog
 			},
 			cancellationToken);
 		return StoreCatalogParser.ParseOfferDetails(json);
+	}
+
+	public async Task<StoreProductPageInfo> GetProductPageAsync(
+		string sandboxId,
+		string? productSlug,
+		CancellationToken cancellationToken = default)
+	{
+		var region = _region();
+		var json = await PostAsync(
+			ProductPageQuery,
+			new Dictionary<string, object?>
+			{
+				["sandboxId"] = sandboxId,
+				["locale"] = region.Locale,
+				["country"] = region.Country,
+				// OpenCritic keys Epic products by their page slug; an unknown key just returns null.
+				["sku"] = string.IsNullOrWhiteSpace(productSlug) ? string.Empty : $"EPIC_{productSlug.Trim('/')}"
+			},
+			cancellationToken);
+		return StoreCatalogParser.ParseProductPage(json);
 	}
 
 	public async Task<StoreOfferReference?> ResolveProductSlugAsync(

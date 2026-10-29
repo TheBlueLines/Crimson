@@ -236,18 +236,29 @@ public partial class StoreViewModel : ObservableObject, INavigationAware
 			new StoreQuery { SortOrder = StoreSortOrder.NewReleases, OnSaleOnly = true, Count = SectionSize },
 			cancellationToken)).Results);
 		await Task.WhenAll(freeGames, newReleases, onSale);
+		if (!IsCurrent(generation))
+			return;
+
+		// Building the item lists is CPU work; keep it off the UI thread and only
+		// assign the finished collections inside the dispatcher callback.
+		var freeResult = await freeGames;
+		var newReleaseResult = await newReleases;
+		var onSaleResult = await onSale;
+		var freeItems = CreateItems(freeResult ?? [], now);
+		var newReleaseItems = CreateItems(newReleaseResult ?? [], now);
+		var onSaleItems = CreateItems(onSaleResult ?? [], now);
 
 		_uiDispatcher.TryEnqueue(() =>
 		{
 			if (!IsCurrent(generation))
 				return;
 
-			FreeGames = CreateItems(freeGames.Result ?? [], now);
-			NewReleases = CreateItems(newReleases.Result ?? [], now);
-			OnSale = CreateItems(onSale.Result ?? [], now);
+			FreeGames = freeItems;
+			NewReleases = newReleaseItems;
+			OnSale = onSaleItems;
 			IsLoading = false;
 
-			if (freeGames.Result is null && newReleases.Result is null && onSale.Result is null)
+			if (freeResult is null && newReleaseResult is null && onSaleResult is null)
 			{
 				SetError("The Epic Games Store could not be reached. Check your connection and try again.");
 				return;
@@ -427,7 +438,16 @@ public partial class StoreViewModel : ObservableObject, INavigationAware
 		_suppressSortReload = true;
 		try
 		{
-			SelectedSortIndex = Math.Max(0, SortOptions.ToList().FindIndex(option => option.Order == order));
+			var index = 0;
+			for (var candidate = 0; candidate < SortOptions.Count; candidate++)
+			{
+				if (SortOptions[candidate].Order != order)
+					continue;
+				index = candidate;
+				break;
+			}
+
+			SelectedSortIndex = index;
 		}
 		finally
 		{

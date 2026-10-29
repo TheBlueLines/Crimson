@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Crimson.Models;
+using Crimson.Utils;
 using Serilog;
 using Windows.ApplicationModel;
 using Windows.Graphics.Imaging;
@@ -32,10 +33,7 @@ public sealed class GameShortcutManager : IGameShortcutManager
 				Environment.GetFolderPath(Environment.SpecialFolder.StartMenu),
 				"Programs",
 				"Crimson Games"),
-			Path.Combine(
-				Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-				"Crimson",
-				"shortcut-icons"))
+			Path.Combine(AppDataPaths.Root, "shortcut-icons"))
 	{
 	}
 

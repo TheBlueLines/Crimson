@@ -1,6 +1,5 @@
 ﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using H.NotifyIcon;
 
@@ -9,12 +8,8 @@ using H.NotifyIcon;
 
 namespace Crimson.Views
 {
-	[ObservableObject]
 	public sealed partial class TrayIconView : UserControl
 	{
-		[ObservableProperty]
-		private bool _isWindowVisible;
-
 		public TrayIconView()
 		{
 			InitializeComponent();
@@ -37,7 +32,6 @@ namespace Crimson.Views
 			{
 				window.Show();
 			}
-			IsWindowVisible = window.Visible;
 		}
 
 		[RelayCommand]

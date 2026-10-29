@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Buffers;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
@@ -122,28 +121,29 @@ public sealed class Manifest
 	{
 		using var compressedStream = new MemoryStream(data, writable: false);
 		using var zlibStream = new ZlibStream(compressedStream, CompressionMode.Decompress);
-		using var output = new MemoryStream(expectedSize);
-		var buffer = ArrayPool<byte>.Shared.Rent(81_920);
 		try
 		{
+			var result = new byte[expectedSize];
 			var total = 0;
-			while (true)
+			while (total < result.Length)
 			{
-				var read = zlibStream.Read(buffer, 0, buffer.Length);
+				var read = zlibStream.Read(result, total, result.Length - total);
 				if (read == 0)
 					break;
+				total += read;
+			}
 
-				total = checked(total + read);
-				if (total > expectedSize || total > EpicProtocolLimits.MaximumManifestBytes)
+			if (total == result.Length)
+			{
+				var probe = new byte[1];
+				if (zlibStream.Read(probe, 0, 1) != 0)
 					throw new InvalidDataException("Manifest decompressed beyond its declared size.");
-
-				output.Write(buffer, 0, read);
 			}
 
 			if (total != expectedSize)
 				throw new InvalidDataException("Manifest decompressed size does not match its declaration.");
 
-			return output.ToArray();
+			return result;
 		}
 		catch (ZlibException exception)
 		{
@@ -152,10 +152,6 @@ public sealed class Manifest
 		catch (OverflowException exception)
 		{
 			throw new InvalidDataException("Manifest decompressed size overflowed.", exception);
-		}
-		finally
-		{
-			ArrayPool<byte>.Shared.Return(buffer);
 		}
 	}
 }

@@ -109,7 +109,7 @@ public partial class LibraryViewModel : ObservableObject, INavigationAware
 					if (currentInstall?.AppName == game.AppName && IsActionRunning(currentInstall))
 					{
 						item.InstallState = MapInstallState(currentInstall);
-						item.InstallProgress = currentInstall.ProgressPercentage;
+						item.InstallProgress = GetKnownProgress(currentInstall);
 					}
 
 					_log.Debug("UpdateLibrary: Adding {AppName} to library", item.Name);
@@ -144,7 +144,7 @@ public partial class LibraryViewModel : ObservableObject, INavigationAware
 				item.InstallState = installItem.Status is ActionStatus.Failed or ActionStatus.Cancelled or ActionStatus.Success
 					? _libraryManager.GetGameInfo(installItem.AppName)?.LocalAppState?.InstallStatus ?? InstallState.NotInstalled
 					: MapInstallState(installItem);
-				item.InstallProgress = installItem.ProgressPercentage;
+				item.InstallProgress = GetKnownProgress(installItem);
 
 				if (resort && GamesList is not null)
 					GamesList = SortGames(GamesList);
@@ -162,6 +162,10 @@ public partial class LibraryViewModel : ObservableObject, INavigationAware
 			.ToList();
 
 	private static int GetSortGroup(LibraryItem item) => item.IsInstalled ? 0 : item.IsInstalling ? 1 : 2;
+
+	// A restored install's progress is unknown until its disk check finishes.
+	private static int GetKnownProgress(InstallItem installItem) =>
+		installItem.IsVerifying ? 0 : installItem.ProgressPercentage;
 
 	private static bool IsActionRunning(InstallItem installItem) =>
 		installItem.Status is ActionStatus.Pending or ActionStatus.Processing

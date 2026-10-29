@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -476,19 +477,20 @@ public partial class AppInstallDialogViewModel : ObservableObject
 		}
 	}
 
-	private string FormatSize(double bytes)
+	private static readonly string[] SizeUnits = ["B", "KB", "MB", "GB", "TB"];
+
+	private static string FormatSize(double bytes)
 	{
-		string[] sizes = ["B", "KB", "MB", "GB", "TB"];
 		var order = 0;
 		var size = bytes;
 
-		while (size >= 1024 && order < sizes.Length - 1)
+		while (size >= 1024 && order < SizeUnits.Length - 1)
 		{
 			order++;
 			size /= 1024;
 		}
 
-		return $"{size:0.##} {sizes[order]}";
+		return $"{size.ToString("0.##", CultureInfo.InvariantCulture)} {SizeUnits[order]}";
 	}
 }
 

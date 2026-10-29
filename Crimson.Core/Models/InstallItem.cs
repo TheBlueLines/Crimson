@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Crimson.Models;
 
@@ -21,6 +22,14 @@ public class InstallItem(string appName, ActionType action, string location)
 	public double TotalWriteSizeBytes { get; set; }
 	public double TotalWriteSizeMb { get; set; }
 	public double WrittenSizeMiB { get; set; }
+	public bool QueuesRestored { get; set; }
+
+	/// <summary>
+	/// True while a restored install is checking the files on disk. Its sizes and progress are
+	/// not known until the check finishes, so views must not show them.
+	/// </summary>
+	[JsonIgnore]
+	public bool IsVerifying { get; set; }
 	public double DownloadSpeedRawMiB { get; set; }
 	public double DownloadSpeedDecompressedMiB { get; set; }
 	public double ReadSpeedMiB { get; set; }

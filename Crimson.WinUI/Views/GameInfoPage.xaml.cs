@@ -35,9 +35,12 @@ public sealed partial class GameInfoPage : Page
 
 	private async Task ShowInstallDialog()
 	{
+		if (ViewModel.Game is not { } game)
+			return;
+
 		// Initialize the dialog
 		InstallDialog.XamlRoot = this.XamlRoot;
-		await InstallDialog.ShowAsync(ViewModel.Game);
+		await InstallDialog.ShowAsync(game);
 	}
 
 	private async Task<string> ShowFolderPicker()
@@ -51,6 +54,6 @@ public sealed partial class GameInfoPage : Page
 		WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
 
 		var folder = await picker.PickSingleFolderAsync().AsTask();
-		return folder?.Path;
+		return folder?.Path ?? string.Empty;
 	}
 }

@@ -61,8 +61,49 @@ public sealed partial class LoginPage : Page
 			return;
 		}
 
-		await _authManager.DoExchangeLogin(exchangeCode);
-		await ShareCookiesWithStoreAsync();
+		// Epic's page reports a launcher error after handing over the code, so hide it until the login resolves.
+		SetSigningIn(true);
+		try
+		{
+			await _authManager.DoExchangeLogin(exchangeCode);
+			await ShareCookiesWithStoreAsync();
+		}
+		finally
+		{
+			// On success the page is collapsed and keeps its WebView hidden until the next InitWebView.
+			if (_authManager.AuthenticationStatus == AuthenticationStatus.LoggedIn)
+				SigningInIndicator.IsActive = false;
+			else
+				SetSigningIn(false);
+		}
+	}
+
+	private void SetSigningIn(bool signingIn)
+	{
+		WebViewHost.Visibility = signingIn ? Visibility.Collapsed : Visibility.Visible;
+		SigningInIndicator.IsActive = signingIn;
+		SigningInIndicator.Visibility = signingIn ? Visibility.Visible : Visibility.Collapsed;
+	}
+
+	// Epic's "sign in with browser" flow (e.g. Google) calls launchexternalurl, which opens a new window;
+	// hand it to the system browser instead of letting WebView2 spawn its own popup.
+	private async void WebView_NewWindowRequested(CoreWebView2 sender, CoreWebView2NewWindowRequestedEventArgs e)
+	{
+		e.Handled = true;
+		if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+		{
+			_log.Warning("Login WebView blocked a new window for a non-HTTPS URL");
+			return;
+		}
+
+		try
+		{
+			await Windows.System.Launcher.LaunchUriAsync(uri);
+		}
+		catch (Exception ex)
+		{
+			_log.Warning(ex, "Failed to open the login URL in the system browser");
+		}
 	}
 
 	public async Task ShareCookiesWithStoreAsync()
@@ -106,6 +147,7 @@ public sealed partial class LoginPage : Page
 		try
 		{
 			CloseWebView();
+			SetSigningIn(false);
 
 			var webView = new WebView2();
 			WebViewHost.Children.Add(webView);
@@ -126,6 +168,7 @@ public sealed partial class LoginPage : Page
 			webView.CoreWebView2.CookieManager.DeleteAllCookies();
 			webView.NavigationStarting += WebView_NavigationStarting;
 			webView.WebMessageReceived += WebView_WebMessageReceived;
+			webView.CoreWebView2.NewWindowRequested += WebView_NewWindowRequested;
 
 			webView.Source = new Uri("https://www.epicgames.com/id/login");
 		}
@@ -141,6 +184,8 @@ public sealed partial class LoginPage : Page
 
 		_loginWebView.NavigationStarting -= WebView_NavigationStarting;
 		_loginWebView.WebMessageReceived -= WebView_WebMessageReceived;
+		if (_loginWebView.CoreWebView2 is not null)
+			_loginWebView.CoreWebView2.NewWindowRequested -= WebView_NewWindowRequested;
 		_loginWebView.Close();
 		WebViewHost.Children.Remove(_loginWebView);
 		_loginWebView = null;

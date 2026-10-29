@@ -24,10 +24,7 @@ public static class WebViewEnvironmentFactory
 
 	private static async Task<CoreWebView2Environment> CreateCoreAsync()
 	{
-		var userDataFolder = Path.Combine(
-			Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-			"Crimson",
-			"webview2");
+		var userDataFolder = Path.Combine(AppDataPaths.Root, "webview2");
 		Directory.CreateDirectory(userDataFolder);
 
 		return await CoreWebView2Environment.CreateWithOptionsAsync(

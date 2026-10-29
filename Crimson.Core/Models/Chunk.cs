@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Buffers;
 using System.Numerics;
 using System.Security.Cryptography;
 using Crimson.Utils;
@@ -66,7 +65,7 @@ public sealed class Chunk
 			// chunks. legendary likewise does not verify on read.
 			_data = Compressed
 				? Decompress(_storedPayload, checked((int)UncompressedSize))
-				: _storedPayload.ToArray();
+				: _storedPayload;
 
 			return _data;
 		}
@@ -96,7 +95,10 @@ public sealed class Chunk
 		var reader = new EpicBinaryReader(stream);
 		var chunk = Read(reader);
 		reader.EnsureAtEnd("Chunk envelope");
-		chunk._serialized = data.ToArray();
+		// The install pipeline only reads this array; copying it would add a full
+		// chunk-sized allocation for every downloaded chunk. WriteToBuffer still
+		// returns a defensive copy if serialization is ever needed.
+		chunk._serialized = data;
 		return chunk;
 	}
 
@@ -161,28 +163,34 @@ public sealed class Chunk
 	{
 		using var compressed = new MemoryStream(data, writable: false);
 		using var zlib = new ZlibStream(compressed, CompressionMode.Decompress);
-		using var output = new MemoryStream(expectedSize);
-		var buffer = ArrayPool<byte>.Shared.Rent(81_920);
+		var output = new byte[expectedSize];
 		try
 		{
 			var total = 0;
 			while (true)
 			{
-				var read = zlib.Read(buffer, 0, buffer.Length);
+				var remaining = expectedSize - total;
+				if (remaining == 0)
+				{
+					// Read one extra byte so an oversized payload is rejected rather than
+					// silently truncated.
+					Span<byte> extra = stackalloc byte[1];
+					if (zlib.Read(extra) != 0)
+						throw new InvalidDataException("Chunk decompressed beyond its declared size.");
+					break;
+				}
+
+				var read = zlib.Read(output, total, remaining);
 				if (read == 0)
 					break;
 
 				total = checked(total + read);
-				if (total > expectedSize || total > EpicProtocolLimits.MaximumChunkBytes)
-					throw new InvalidDataException("Chunk decompressed beyond its declared size.");
-
-				output.Write(buffer, 0, read);
 			}
 
 			if (total != expectedSize)
 				throw new InvalidDataException("Chunk decompressed size does not match its declaration.");
 
-			return output.ToArray();
+			return output;
 		}
 		catch (ZlibException exception)
 		{
@@ -191,10 +199,6 @@ public sealed class Chunk
 		catch (OverflowException exception)
 		{
 			throw new InvalidDataException("Chunk decompressed size overflowed.", exception);
-		}
-		finally
-		{
-			ArrayPool<byte>.Shared.Return(buffer);
 		}
 	}
 

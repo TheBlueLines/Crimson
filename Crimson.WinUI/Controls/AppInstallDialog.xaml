@@ -9,7 +9,22 @@
 	xmlns:models="using:Crimson.Models"
 	mc:Ignorable="d">
 
+	<!--
+		In-app acrylic like the navigation pane: the dialog blurs the game art behind it. Its
+		tint is denser than the pane's because the dialog is mostly text. With acrylic off it is
+		65% black instead (AppInstallDialog.ApplyAcrylicSetting).
+	-->
 	<ContentDialog x:Name="InstallContentDialog" MinWidth="800">
+		<ContentDialog.Background>
+			<AcrylicBrush
+				FallbackColor="#F0202020"
+				TintColor="#1C1C1C"
+				TintLuminosityOpacity="0.55"
+				TintOpacity="0.35" />
+		</ContentDialog.Background>
+		<ContentDialog.Resources>
+			<SolidColorBrush x:Key="ContentDialogTopOverlay" Color="Transparent" />
+		</ContentDialog.Resources>
 		<StackPanel Spacing="20">
 			<!--  Header  -->
 			<Grid ColumnSpacing="10">

@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Crimson.Core;
 using Crimson.Models;
 using Crimson.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Serilog;
 
 namespace Crimson.Controls
@@ -12,11 +14,14 @@ namespace Crimson.Controls
 	public sealed partial class AppInstallDialog : UserControl
 	{
 		private CancellationTokenSource? _initializationCancellation;
+		private readonly Brush _acrylicBackground;
+		private readonly SolidColorBrush _dimBackground = new(Windows.UI.Color.FromArgb(0xA6, 0x00, 0x00, 0x00));
 
 		public AppInstallDialogViewModel ViewModel { get; }
 		public AppInstallDialog()
 		{
 			this.InitializeComponent();
+			_acrylicBackground = InstallContentDialog.Background;
 			ViewModel = App.GetService<AppInstallDialogViewModel>();
 			ViewModel.RequestClose += OnRequestClose;
 			ViewModel.FolderPickerRequested += ShowFolderPicker;
@@ -33,6 +38,7 @@ namespace Crimson.Controls
 				_ = ObserveInitializationAsync(
 					ViewModel.InitializeAsync(gameInfo, cancellation.Token),
 					cancellation.Token);
+				ApplyAcrylicSetting();
 				await InstallContentDialog.ShowAsync(ContentDialogPlacement.Popup);
 			}
 			catch (Exception ex)
@@ -68,6 +74,13 @@ namespace Crimson.Controls
 			}
 		}
 
+		private void ApplyAcrylicSetting()
+		{
+			InstallContentDialog.Background = App.GetService<SettingsManager>().AcrylicEnabled
+				? _acrylicBackground
+				: _dimBackground;
+		}
+
 		private void OnRequestClose()
 		{
 			_initializationCancellation?.Cancel();
@@ -92,7 +105,7 @@ namespace Crimson.Controls
 			// Show the picker and get the selected folder
 			var folder = await folderPicker.PickSingleFolderAsync();
 
-			return folder?.Path;
+			return folder?.Path ?? string.Empty;
 		}
 
 		public void Cleanup()
