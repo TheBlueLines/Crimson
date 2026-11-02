@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
 using System.Threading.Tasks;
 using Crimson.Core;
@@ -18,8 +19,6 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
 using Serilog;
-using Windows.Storage;
-using Windows.Storage.FileProperties;
 
 namespace Crimson.Views;
 
@@ -1060,16 +1059,17 @@ public sealed partial class MainWindow : Window
 
 	private async Task<ImageSource?> ReadExecutableIconAsync(string executable)
 	{
+		const int size = GameIconBoxHeight * 2;
 		try
 		{
-			var file = await StorageFile.GetFileFromPathAsync(executable);
-			using var thumbnail = await file.GetThumbnailAsync(
-				ThumbnailMode.SingleItem, GameIconBoxHeight * 2, ThumbnailOptions.ResizeThumbnail);
-			if (thumbnail is null || thumbnail.Size == 0)
+			var pixels = await Task.Run(() => ExecutableIcon.ReadPixels(executable, size));
+			if (pixels is null)
 				return null;
 
-			var bitmap = new BitmapImage();
-			await bitmap.SetSourceAsync(thumbnail);
+			var bitmap = new WriteableBitmap(size, size);
+			using (var stream = bitmap.PixelBuffer.AsStream())
+				await stream.WriteAsync(pixels);
+			bitmap.Invalidate();
 			return bitmap;
 		}
 		catch (Exception ex)
