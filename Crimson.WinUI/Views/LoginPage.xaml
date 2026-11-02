@@ -7,7 +7,8 @@
 	xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
 	xmlns:local="using:Crimson"
 	xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-	Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+	Background="#121212"
+	RequestedTheme="Dark"
 	mc:Ignorable="d">
 
 	<!-- The WebView2 is created in code: Close() disposes it permanently, so signing back in needs a new one. -->

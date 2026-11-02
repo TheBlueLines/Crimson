@@ -52,7 +52,15 @@
 
 				<TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Appearance" />
 
-				<toolkit:SettingsCard Description="Blur the sidebar, search results and dialogs, and use the Windows 11 backdrop" Header="Enable Acrylic">
+				<toolkit:SettingsCard Header="Theme" Description="Choose how Crimson looks">
+					<ComboBox AutomationProperties.Name="Theme" SelectedIndex="{x:Bind ViewModel.Theme, Mode=TwoWay}">
+						<x:String>System</x:String>
+						<x:String>Light</x:String>
+						<x:String>Dark</x:String>
+					</ComboBox>
+				</toolkit:SettingsCard>
+
+				<toolkit:SettingsCard Description="Blur the sidebar and dialogs, and use the Windows 11 backdrop" Header="Enable Acrylic">
 					<ToggleSwitch IsOn="{x:Bind ViewModel.AcrylicEnabled, Mode=TwoWay}" />
 				</toolkit:SettingsCard>
 

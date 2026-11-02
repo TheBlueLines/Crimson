@@ -33,6 +33,19 @@ public class SettingsManager
 	}
 
 	public event Action<bool>? AcrylicEnabledChanged;
+	public event Action<int>? ThemeChanged;
+
+	// 0 follows Windows, 1 is light and 2 is dark. Unknown saved values fall back to System.
+	public int Theme
+	{
+		get => Settings.Theme is >= 0 and <= 2 ? Settings.Theme : 0;
+		set
+		{
+			if (value is < 0 or > 2 || Settings.Theme == value) return;
+			Settings.Theme = value;
+			ThemeChanged?.Invoke(value);
+		}
+	}
 
 	public bool AcrylicEnabled
 	{
