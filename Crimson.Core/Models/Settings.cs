@@ -2,6 +2,8 @@
 
 class Settings
 {
+	public int Theme { get; set; } = 0;
+
 	public bool AcrylicEnabled { get; set; } = true;
 
 	public string DefaultInstallLocation { get; set; }

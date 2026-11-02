@@ -9,7 +9,7 @@
 	mc:Ignorable="d">
 
 
-	<Grid>
+	<Grid x:Name="RootGrid">
 		<Grid.RowDefinitions>
 			<!--  Matches the tall (48px) caption buttons set in MainWindow.StyleCaptionButtons.  -->
 			<RowDefinition Height="48" />
@@ -157,42 +157,8 @@
 			QuerySubmitted="GlobalSearchBox_QuerySubmitted"
 			TextChanged="GlobalSearchBox_TextChanged"
 			TextMemberPath="DisplayText">
-			<!--
-				Frosted pill like Fluent Launcher's title bar search. The box itself is a light
-				veil; on a game page SearchBlur (in GameBackgroundLayer) blurs the art beneath it.
-				Acrylic on the box would keep showing the last game's colours once the art is gone.
-				It darkens while typing to keep the text readable.
-			-->
 			<AutoSuggestBox.Resources>
-				<SolidColorBrush x:Key="TextControlBackground" Color="#14FFFFFF" />
-				<SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#24FFFFFF" />
-				<SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#CC1E1E1E" />
-				<!--
-					The results popup is its own window, so SearchResultsBlur (behind it, in the main
-					window) provides the acrylic, which this list must not cover.
-				-->
 				<SolidColorBrush x:Key="AutoSuggestBoxSuggestionsListBackground" Color="Transparent" />
-				<SolidColorBrush x:Key="AutoSuggestBoxSuggestionsListBorderBrush" Color="#33FFFFFF" />
-				<SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="#801E1E1E" />
-				<SolidColorBrush x:Key="TextControlBorderBrush" Color="#33FFFFFF" />
-				<SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#4DFFFFFF" />
-				<SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#80FFFFFF" />
-				<SolidColorBrush x:Key="TextControlBorderBrushDisabled" Color="#1AFFFFFF" />
-				<SolidColorBrush x:Key="TextControlForeground" Color="#FFFFFFFF" />
-				<SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="#FFFFFFFF" />
-				<SolidColorBrush x:Key="TextControlForegroundFocused" Color="#FFFFFFFF" />
-				<SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#99FFFFFF" />
-				<SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#CCFFFFFF" />
-				<SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#99FFFFFF" />
-				<SolidColorBrush x:Key="TextControlButtonForeground" Color="#CCFFFFFF" />
-				<SolidColorBrush x:Key="TextControlButtonBackground" Color="Transparent" />
-				<SolidColorBrush x:Key="TextControlButtonBackgroundPointerOver" Color="#22FFFFFF" />
-				<SolidColorBrush x:Key="TextControlButtonBackgroundPressed" Color="#33FFFFFF" />
-				<SolidColorBrush x:Key="TextControlButtonBorderBrush" Color="Transparent" />
-				<SolidColorBrush x:Key="AutoSuggestBoxQueryButtonForeground" Color="#CCFFFFFF" />
-				<SolidColorBrush x:Key="AutoSuggestBoxQueryButtonBackground" Color="Transparent" />
-				<SolidColorBrush x:Key="AutoSuggestBoxQueryButtonBackgroundPointerOver" Color="#22FFFFFF" />
-				<SolidColorBrush x:Key="AutoSuggestBoxQueryButtonBackgroundPressed" Color="#33FFFFFF" />
 				<CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
 				<x:Double x:Key="TextControlThemeMinHeight">34</x:Double>
 				<x:Double x:Key="TextControlThemeMinWidth">0</x:Double>

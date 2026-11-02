@@ -11,6 +11,18 @@ namespace Crimson.ViewModels
 		private readonly AuthManager _authManager;
 		private readonly IFolderLauncher _folderLauncher;
 
+		public int Theme
+		{
+			get => _settingsManager.Theme;
+			set
+			{
+				if (_settingsManager.Theme == value || value is < 0 or > 2) return;
+				_settingsManager.Theme = value;
+				OnPropertyChanged();
+				_ = SaveSettingsAsync();
+			}
+		}
+
 		public bool AcrylicEnabled
 		{
 			get => _settingsManager.AcrylicEnabled;

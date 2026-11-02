@@ -61,10 +61,7 @@ public sealed partial class MainWindow : Window
 	private CancellationTokenSource? _storeSearchCancellation;
 	private string? _currentGameAppName;
 
-	private Brush? _contentBackground;
 	private readonly SolidColorBrush _transparentChromeBrush = new(Microsoft.UI.Colors.Transparent);
-	// 65% black: Settings' and the search results' background when acrylic is off.
-	private readonly SolidColorBrush _dimBackgroundBrush = new(Windows.UI.Color.FromArgb(0xA6, 0x00, 0x00, 0x00));
 
 	private List<(string AppName, string AppTitle, InstallState? Status, bool IsRunning)> _installedMenuSnapshot = [];
 	private string? _installedMenuActiveAppName;
@@ -109,7 +106,6 @@ public sealed partial class MainWindow : Window
 		InitializeComponent();
 		SetWindowIcon();
 
-		_contentBackground = ContentFrame.Background;
 		foreach (var key in PaneBackgroundKeys)
 			NavControl.Resources[key] = _transparentChromeBrush;
 		ContentFrame.Navigating += ContentFrame_Navigating;
@@ -118,6 +114,9 @@ public sealed partial class MainWindow : Window
 
 		_settingsManager = App.GetService<SettingsManager>();
 		_settingsManager.AcrylicEnabledChanged += OnAcrylicEnabledChanged;
+		_settingsManager.ThemeChanged += OnThemeChanged;
+		RootGrid.ActualThemeChanged += (_, _) => UpdateThemeChrome();
+		ApplyTheme(_settingsManager.Theme);
 		this.Closed += Window_Closed;
 		ApplyWindowBackdrop();
 		ApplyAcrylicBlurs();
@@ -165,16 +164,37 @@ public sealed partial class MainWindow : Window
 	/// </summary>
 	private void StyleCaptionButtons()
 	{
+		AppWindow.TitleBar.PreferredHeightOption = Microsoft.UI.Windowing.TitleBarHeightOption.Tall;
+		UpdateThemeChrome();
+	}
+
+	private void OnThemeChanged(int theme) => ApplyTheme(theme);
+
+	private void ApplyTheme(int theme)
+	{
+		RootGrid.RequestedTheme = theme switch { 1 => ElementTheme.Light, 2 => ElementTheme.Dark, _ => ElementTheme.Default };
+		UpdateThemeChrome();
+	}
+
+	private void UpdateThemeChrome()
+	{
+		if (_settingsManager is null) return;
+		bool dark = RootGrid.ActualTheme == ElementTheme.Dark;
+		bool darkChrome = dark || LoginPage.Visibility == Visibility.Visible || GameBackgroundLayer.Visibility == Visibility.Visible;
+		var color = darkChrome ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black;
 		var titleBar = AppWindow.TitleBar;
-		titleBar.PreferredHeightOption = Microsoft.UI.Windowing.TitleBarHeightOption.Tall;
 		titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
 		titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
-		titleBar.ButtonHoverBackgroundColor = Windows.UI.Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF);
-		titleBar.ButtonPressedBackgroundColor = Windows.UI.Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF);
-		titleBar.ButtonForegroundColor = Microsoft.UI.Colors.White;
-		titleBar.ButtonHoverForegroundColor = Microsoft.UI.Colors.White;
-		titleBar.ButtonPressedForegroundColor = Microsoft.UI.Colors.White;
-		titleBar.ButtonInactiveForegroundColor = Windows.UI.Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF);
+		titleBar.ButtonForegroundColor = color;
+		titleBar.ButtonHoverForegroundColor = color;
+		titleBar.ButtonPressedForegroundColor = color;
+		titleBar.ButtonInactiveForegroundColor = Windows.UI.Color.FromArgb(0x99, color.R, color.G, color.B);
+		titleBar.ButtonHoverBackgroundColor = Windows.UI.Color.FromArgb(0x1A, color.R, color.G, color.B);
+		titleBar.ButtonPressedBackgroundColor = Windows.UI.Color.FromArgb(0x33, color.R, color.G, color.B);
+		AppTitleTextBlock.Foreground = new SolidColorBrush(color);
+		RootGrid.Background = _settingsManager.AcrylicEnabled ? _transparentChromeBrush : ContentBackground;
+		ApplySearchResultsBackground();
+		if (GameBackgroundLayer.Visibility != Visibility.Visible) ContentFrame.Background = ContentBackground;
 	}
 
 	private void SetWindowIcon()
@@ -227,16 +247,13 @@ public sealed partial class MainWindow : Window
 				(int)Math.Round(bounds.Height * scale))]);
 	}
 
-	/// <summary>
-	/// The results popup is its own window (AutoSuggestBox resets ShouldConstrainToRootBounds on
-	/// open, and changing it afterwards throws), and Windows draws no backdrop behind it. Its list
-	/// stays transparent over SearchResultsBlur, which blurs the page in the main window. With
-	/// acrylic off, the list brush the template draws with turns 65% black instead.
-	/// </summary>
+	// The popup is a separate window. Dark mode can use the acrylic layer behind it.
 	private void ApplySearchResultsBackground()
 	{
 		if (GlobalSearchBox.Resources["AutoSuggestBoxSuggestionsListBackground"] is SolidColorBrush listBrush)
-			listBrush.Color = _settingsManager.AcrylicEnabled ? Microsoft.UI.Colors.Transparent : _dimBackgroundBrush.Color;
+			listBrush.Color = GlobalSearchBox.ActualTheme == ElementTheme.Dark
+				? (_settingsManager.AcrylicEnabled ? Microsoft.UI.Colors.Transparent : Windows.UI.Color.FromArgb(255, 32, 32, 32))
+				: Windows.UI.Color.FromArgb(255, 250, 250, 250);
 
 		if (_searchResultsPopup is null &&
 			FindDescendant<Popup>(GlobalSearchBox, "SuggestionsPopup") is { Child: FrameworkElement container } popup)
@@ -255,7 +272,7 @@ public sealed partial class MainWindow : Window
 	private void UpdateSearchResultsBlur()
 	{
 		if (_searchResultsPopup is not { IsOpen: true, Child: FrameworkElement container } ||
-			!_settingsManager.AcrylicEnabled ||
+			!_settingsManager.AcrylicEnabled || GlobalSearchBox.ActualTheme != ElementTheme.Dark ||
 			container.ActualHeight <= 0 ||
 			Content is not UIElement root)
 		{
@@ -543,13 +560,16 @@ public sealed partial class MainWindow : Window
 			HideGameBackground();
 
 		if (e.SourcePageType == typeof(SettingsPage))
-			ContentFrame.Background = SettingsBackground;
+			ContentFrame.Background = ContentBackground;
 	}
 
 	private void ShowGameBackground(string? imageUrl)
 	{
 		GameBackgroundBrush.ImageSource = CreateGameBackgroundImage(imageUrl);
 		GameBackgroundLayer.Visibility = Visibility.Visible;
+		NavControl.RequestedTheme = ElementTheme.Dark;
+		GlobalSearchBox.RequestedTheme = ElementTheme.Dark;
+		UpdateThemeChrome();
 		UpdatePaneBlurWidth();
 
 		// Let the artwork run behind the page and the title bar above it.
@@ -576,7 +596,9 @@ public sealed partial class MainWindow : Window
 	/// <summary>
 	/// The pane and search pill blurs follow the acrylic setting; with it off they stay see-through.
 	/// </summary>
-	private Brush? SettingsBackground => _settingsManager.AcrylicEnabled ? _contentBackground : _dimBackgroundBrush;
+	private Brush ContentBackground => new SolidColorBrush(RootGrid.ActualTheme == ElementTheme.Dark
+		? Windows.UI.Color.FromArgb(_settingsManager.AcrylicEnabled ? (byte)0xA6 : (byte)0xFF, 28, 28, 28)
+		: Windows.UI.Color.FromArgb(_settingsManager.AcrylicEnabled ? (byte)0xE6 : (byte)0xFF, 243, 243, 243));
 
 	private void ApplyAcrylicBlurs()
 	{
@@ -589,8 +611,11 @@ public sealed partial class MainWindow : Window
 	{
 		GameBackgroundBrush.ImageSource = null;
 		GameBackgroundLayer.Visibility = Visibility.Collapsed;
+		NavControl.RequestedTheme = ElementTheme.Default;
+		GlobalSearchBox.RequestedTheme = ElementTheme.Default;
+		UpdateThemeChrome();
 
-		ContentFrame.Background = _contentBackground;
+		ContentFrame.Background = ContentBackground;
 	}
 
 	private static ImageSource? CreateGameBackgroundImage(string? imageUrl)
@@ -1206,6 +1231,7 @@ public sealed partial class MainWindow : Window
 				LoginPage.Visibility = Visibility.Visible;
 				break;
 		}
+		UpdateThemeChrome();
 	}
 
 	private void AuthStatusChangedHandler(object sender, AuthStatusChangedEventArgs e)
@@ -1244,9 +1270,9 @@ public sealed partial class MainWindow : Window
 	{
 		ApplyWindowBackdrop();
 		ApplyAcrylicBlurs();
-		ApplySearchResultsBackground();
-		if (ContentFrame.Content is SettingsPage)
-			ContentFrame.Background = SettingsBackground;
+		UpdateThemeChrome();
+		if (GameBackgroundLayer.Visibility != Visibility.Visible)
+			ContentFrame.Background = ContentBackground;
 	}
 
 	/// <summary>
@@ -1270,6 +1296,7 @@ public sealed partial class MainWindow : Window
 			return;
 
 		_settingsManager.AcrylicEnabledChanged -= OnAcrylicEnabledChanged;
+		_settingsManager.ThemeChanged -= OnThemeChanged;
 
 		_libraryManager.LibraryUpdated -= LibraryUpdatedHandler;
 		_libraryManager.GameStatusUpdated -= GameStatusUpdatedHandler;

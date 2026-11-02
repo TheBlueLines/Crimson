@@ -44,6 +44,35 @@ public sealed class StorageTests : IDisposable
 	}
 
 	[Fact]
+	public async Task ThemeDefaultsToSystemAndPersistsSelection()
+	{
+		var storage = new Storage(_logger, _appDataPath, _appDataPath);
+		SettingsManager CreateSettings() => new(storage, NullLogger<SettingsManager>.Instance, _appDataPath, _appDataPath);
+		var settings = CreateSettings();
+		Assert.Equal(0, settings.Theme);
+		var changes = new List<int>();
+		settings.ThemeChanged += changes.Add;
+		settings.Theme = 1;
+		settings.Theme = 1;
+		settings.Theme = 99;
+		await settings.SaveSettings();
+		Assert.Equal(new[] { 1 }, changes);
+		Assert.Equal(1, CreateSettings().Theme);
+	}
+
+	[Fact]
+	public async Task InvalidThemeCanBeResetToSystem()
+	{
+		var storage = new Storage(_logger, _appDataPath, _appDataPath);
+		await storage.SaveSettingsData("{\"Theme\":99}");
+		var settings = new SettingsManager(storage, NullLogger<SettingsManager>.Instance, _appDataPath, _appDataPath);
+		Assert.Equal(0, settings.Theme);
+		settings.Theme = 0;
+		await settings.SaveSettings();
+		Assert.Contains("\"Theme\":0", storage.GetSettingsData());
+	}
+
+	[Fact]
 	public void RejectsMetadataPathOutsideInjectedRoot()
 	{
 		var storage = new Storage(_logger, _appDataPath, _appDataPath);
