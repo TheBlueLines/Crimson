@@ -62,6 +62,8 @@ public sealed partial class MainWindow : Window
 	private string? _currentGameAppName;
 
 	private readonly SolidColorBrush _transparentChromeBrush = new(Microsoft.UI.Colors.Transparent);
+	// Behind a game page's key art in light mode, so the forced-dark page never sits on a light backdrop.
+	private readonly SolidColorBrush _gameFallbackBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x20, 0x20, 0x20));
 
 	private List<(string AppName, string AppTitle, InstallState? Status, bool IsRunning)> _installedMenuSnapshot = [];
 	private string? _installedMenuActiveAppName;
@@ -182,6 +184,8 @@ public sealed partial class MainWindow : Window
 		bool dark = RootGrid.ActualTheme == ElementTheme.Dark;
 		bool darkChrome = dark || LoginPage.Visibility == Visibility.Visible || GameBackgroundLayer.Visibility == Visibility.Visible;
 		var color = darkChrome ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black;
+		// With no artwork (or while it loads) the layer would show the light backdrop through its scrims.
+		GameBackgroundLayer.Background = dark ? null : _gameFallbackBrush;
 		var titleBar = AppWindow.TitleBar;
 		titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
 		titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
