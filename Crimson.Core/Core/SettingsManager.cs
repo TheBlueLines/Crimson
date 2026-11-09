@@ -85,6 +85,17 @@ public class SettingsManager
 		}
 	}
 
+	// Unknown saved values fall back to not starting.
+	public StartupBehavior StartupBehavior
+	{
+		get => Enum.IsDefined(Settings.StartupBehavior) ? Settings.StartupBehavior : StartupBehavior.None;
+		set
+		{
+			if (Enum.IsDefined(value))
+				Settings.StartupBehavior = value;
+		}
+	}
+
 	public string LogsDirectory => _logsDirectory;
 
 	private Settings LoadSettings()

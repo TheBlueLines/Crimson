@@ -74,6 +74,14 @@
 					</ComboBox>
 				</toolkit:SettingsCard>
 
+				<toolkit:SettingsCard Description="{x:Bind ViewModel.StartupBehaviorDescription, Mode=OneWay}" Header="When Windows starts">
+					<ComboBox AutomationProperties.Name="When Windows starts" SelectedIndex="{x:Bind ViewModel.StartupBehaviorIndex, Mode=TwoWay}">
+						<x:String>Don't open</x:String>
+						<x:String>Run in the background</x:String>
+						<x:String>Open app</x:String>
+					</ComboBox>
+				</toolkit:SettingsCard>
+
 				<TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Cloud saves" />
 
 				<toolkit:SettingsCard Description="Sync saves before a game starts and after it closes. If both copies changed, Crimson asks which one to keep" Header="Sync automatically">

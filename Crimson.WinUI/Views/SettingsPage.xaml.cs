@@ -16,6 +16,7 @@ namespace Crimson.Views
 		{
 			InitializeComponent();
 			DataContext = App.GetService<SettingsViewModel>();
+			Loaded += async (_, _) => await ViewModel.RefreshStartupBehaviorAsync();
 		}
 
 		private static readonly Uri SourceCodeUri = new("https://github.com/TheBlueLines/Crimson");

@@ -76,6 +76,7 @@ namespace Crimson
 			{
 				services.AddSingleton<IUiDispatcher>(new WindowsUiDispatcher(_dispatcherQueue));
 				services.AddSingleton<IFolderLauncher, WindowsFolderLauncher>();
+				services.AddSingleton<IStartupRegistration, WindowsStartupRegistration>();
 				services.AddSingleton<ILogger>(provider =>
 				{
 					var logDirectory = Path.Combine(GetAppDataPath(), "logs");
@@ -219,16 +220,31 @@ namespace Crimson
 		/// <param name="args">Details about the launch request and process.</param>
 		protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
 		{
+			var activationArguments = InitialActivationArguments;
+			InitialActivationArguments = null;
+
+			var startedWithWindows = activationArguments is not null && IsStartupActivation(activationArguments);
+			var startupBehavior = GetService<SettingsManager>().StartupBehavior;
+			if (startedWithWindows && startupBehavior == StartupBehavior.None)
+			{
+				// The Windows registration can outlive the setting, or be turned on from Windows.
+				Exit();
+				return;
+			}
+
 			m_window = new MainWindow();
 			m_window.Closed += OnExit;
 
-			var activationArguments = InitialActivationArguments;
-			InitialActivationArguments = null;
 			if (activationArguments is not null && TryGetLaunchAppName(activationArguments, out var appName))
 			{
 				// The window stays hidden for a shortcut launch, so the tray is the way back to it.
 				m_window.SetWindowShown(false);
 				await LaunchFromShortcutAsync(appName);
+			}
+			else if (startedWithWindows && startupBehavior == StartupBehavior.RunInBackground)
+			{
+				m_window.SetWindowShown(false);
+				await EnsureAuthenticationAsync();
 			}
 			else
 			{
@@ -270,11 +286,20 @@ namespace Crimson
 
 		private async Task ProcessActivationAsync(AppActivationArguments arguments)
 		{
+			// Windows starting a copy while Crimson already runs should not bring the window up.
+			if (IsStartupActivation(arguments))
+				return;
+
 			if (TryGetLaunchAppName(arguments, out var appName))
 				await LaunchFromShortcutAsync(appName);
 			else
 				ShowMainWindow();
 		}
+
+		private static bool IsStartupActivation(AppActivationArguments arguments) =>
+			arguments.Kind == ExtendedActivationKind.StartupTask ||
+			(arguments.Data is ILaunchActivatedEventArgs launchArguments &&
+				StartupLaunch.IsStartupCommandLine(launchArguments.Arguments));
 
 		private static bool TryGetLaunchAppName(AppActivationArguments arguments, out string appName)
 		{

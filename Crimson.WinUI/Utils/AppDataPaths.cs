@@ -76,7 +76,7 @@ public static class AppDataPaths
 		}
 	}
 
-	private static bool IsPackaged()
+	internal static bool IsPackaged()
 	{
 		try
 		{

@@ -11,4 +11,6 @@ class Settings
 	public bool CloudSaveAutoSync { get; set; }
 
 	public CloseBehavior CloseBehavior { get; set; } = CloseBehavior.Exit;
+
+	public StartupBehavior StartupBehavior { get; set; } = StartupBehavior.None;
 }
