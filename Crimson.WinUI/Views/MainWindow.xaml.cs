@@ -31,6 +31,9 @@ public sealed partial class MainWindow : Window
 	private const int GameIconBoxHeight = 24;
 	private const int InitialWindowWidth = 1235;
 	private const int InitialWindowHeight = 675;
+	// The title bar's centred 520px search box must clear the caption buttons on the right.
+	private const int MinimumWindowWidth = 860;
+	private const int MinimumWindowHeight = 500;
 
 	private static readonly string[] ProgressBackgroundKeys =
 	[
@@ -110,6 +113,7 @@ public sealed partial class MainWindow : Window
 		InitializeComponent();
 		SetWindowIcon();
 		ApplyInitialWindowBounds();
+		EnforceMinimumWindowSize();
 
 		foreach (var key in PaneBackgroundKeys)
 			NavControl.Resources[key] = _transparentChromeBrush;
@@ -240,6 +244,43 @@ public sealed partial class MainWindow : Window
 			workArea.Y + (workArea.Height - height) / 2,
 			width,
 			height));
+	}
+
+	private const uint WM_GETMINMAXINFO = 0x0024;
+	private const int MinTrackSizeOffset = 24; // MINMAXINFO.ptMinTrackSize
+
+	private delegate IntPtr SubclassProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data);
+
+	[DllImport("comctl32.dll")]
+	private static extern bool SetWindowSubclass(IntPtr hwnd, SubclassProc proc, UIntPtr id, UIntPtr data);
+
+	[DllImport("comctl32.dll")]
+	private static extern IntPtr DefSubclassProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+
+	// Native code holds this callback, so it must not be collected while the window exists.
+	private SubclassProc? _minimumSizeProc;
+
+	private void EnforceMinimumWindowSize()
+	{
+		_minimumSizeProc = MinimumSizeProc;
+		SetWindowSubclass(WinRT.Interop.WindowNative.GetWindowHandle(this), _minimumSizeProc, UIntPtr.Zero, UIntPtr.Zero);
+	}
+
+	private IntPtr MinimumSizeProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data)
+	{
+		var result = DefSubclassProc(hwnd, message, wParam, lParam);
+		if (message == WM_GETMINMAXINFO)
+		{
+			// Scaled per query so the limit follows the window across monitors, and kept within
+			// the work area so a small or heavily scaled display can still fit the window.
+			var scale = GetDpiForWindow(hwnd) / 96d;
+			var workArea = Microsoft.UI.Windowing.DisplayArea
+				.GetFromWindowId(AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest)
+				.WorkArea;
+			Marshal.WriteInt32(lParam, MinTrackSizeOffset, Math.Min((int)Math.Round(MinimumWindowWidth * scale), workArea.Width));
+			Marshal.WriteInt32(lParam, MinTrackSizeOffset + 4, Math.Min((int)Math.Round(MinimumWindowHeight * scale), workArea.Height));
+		}
+		return result;
 	}
 
 	private void NavControl_BackRequested(NavigationView sender,
