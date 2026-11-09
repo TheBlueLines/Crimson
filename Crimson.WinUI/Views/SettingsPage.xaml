@@ -64,6 +64,16 @@
 					<ToggleSwitch IsOn="{x:Bind ViewModel.AcrylicEnabled, Mode=TwoWay}" />
 				</toolkit:SettingsCard>
 
+				<TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="General" />
+
+				<toolkit:SettingsCard Description="Closing entirely stops downloads until you next open Crimson" Header="When Crimson is closed">
+					<ComboBox AutomationProperties.Name="When Crimson is closed" SelectedIndex="{x:Bind ViewModel.CloseBehaviorIndex, Mode=TwoWay}">
+						<x:String>Close entirely</x:String>
+						<x:String>Minimize to system tray</x:String>
+						<x:String>Run in the background</x:String>
+					</ComboBox>
+				</toolkit:SettingsCard>
+
 				<TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Cloud saves" />
 
 				<toolkit:SettingsCard Description="Sync saves before a game starts and after it closes. If both copies changed, Crimson asks which one to keep" Header="Sync automatically">

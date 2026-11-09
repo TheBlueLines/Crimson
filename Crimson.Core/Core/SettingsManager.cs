@@ -34,6 +34,7 @@ public class SettingsManager
 
 	public event Action<bool>? AcrylicEnabledChanged;
 	public event Action<int>? ThemeChanged;
+	public event Action<CloseBehavior>? CloseBehaviorChanged;
 
 	// 0 follows Windows, 1 is light and 2 is dark. Unknown saved values fall back to System.
 	public int Theme
@@ -70,6 +71,18 @@ public class SettingsManager
 	{
 		get => Settings.CloudSaveAutoSync;
 		set => Settings.CloudSaveAutoSync = value;
+	}
+
+	// Unknown saved values fall back to exiting.
+	public CloseBehavior CloseBehavior
+	{
+		get => Enum.IsDefined(Settings.CloseBehavior) ? Settings.CloseBehavior : CloseBehavior.Exit;
+		set
+		{
+			if (!Enum.IsDefined(value) || Settings.CloseBehavior == value) return;
+			Settings.CloseBehavior = value;
+			CloseBehaviorChanged?.Invoke(value);
+		}
 	}
 
 	public string LogsDirectory => _logsDirectory;

@@ -9,4 +9,6 @@ class Settings
 	public string DefaultInstallLocation { get; set; }
 
 	public bool CloudSaveAutoSync { get; set; }
+
+	public CloseBehavior CloseBehavior { get; set; } = CloseBehavior.Exit;
 }

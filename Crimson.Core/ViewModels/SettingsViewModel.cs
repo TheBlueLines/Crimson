@@ -1,7 +1,9 @@
-﻿using System.Threading.Tasks;
+﻿using System;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Crimson.Core;
+using Crimson.Models;
 
 namespace Crimson.ViewModels
 {
@@ -40,6 +42,19 @@ namespace Crimson.ViewModels
 			set
 			{
 				_settingsManager.CloudSaveAutoSync = value;
+				OnPropertyChanged();
+				_ = SaveSettingsAsync();
+			}
+		}
+
+		public int CloseBehaviorIndex
+		{
+			get => (int)_settingsManager.CloseBehavior;
+			set
+			{
+				var behavior = (CloseBehavior)value;
+				if (_settingsManager.CloseBehavior == behavior || !Enum.IsDefined(behavior)) return;
+				_settingsManager.CloseBehavior = behavior;
 				OnPropertyChanged();
 				_ = SaveSettingsAsync();
 			}

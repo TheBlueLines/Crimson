@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Crimson.Core;
+using Crimson.Models;
 using Crimson.Repository;
 using Crimson.Utils;
 using Crimson.ViewModels;
@@ -37,7 +38,12 @@ namespace Crimson
 		{
 			get;
 		}
-		public static bool HandleClosedEvents { get; set; } = true;
+		/// <summary>
+		/// Whether closing the main window should only hide it, leaving the app running.
+		/// </summary>
+		public static bool HandleClosedEvents =>
+			!_exitRequested && GetService<SettingsManager>().CloseBehavior != CloseBehavior.Exit;
+		private static bool _exitRequested;
 		internal static AppActivationArguments? InitialActivationArguments { get; set; }
 
 		private static readonly object ActivationLock = new();
@@ -219,7 +225,11 @@ namespace Crimson
 			var activationArguments = InitialActivationArguments;
 			InitialActivationArguments = null;
 			if (activationArguments is not null && TryGetLaunchAppName(activationArguments, out var appName))
+			{
+				// The window stays hidden for a shortcut launch, so the tray is the way back to it.
+				m_window.SetWindowShown(false);
 				await LaunchFromShortcutAsync(appName);
+			}
 			else
 			{
 				ShowMainWindow();
@@ -310,10 +320,28 @@ namespace Crimson
 			}
 		}
 
-		private void ShowMainWindow()
+		internal bool IsMainWindowShown => m_window?.IsWindowShown ?? false;
+
+		internal void ShowMainWindow()
 		{
 			m_window?.Show();
 			m_window?.Activate();
+			m_window?.SetWindowShown(true);
+		}
+
+		internal void HideMainWindow()
+		{
+			m_window?.Hide();
+			m_window?.SetWindowShown(false);
+		}
+
+		/// <summary>
+		/// Exits the app regardless of what the close setting says.
+		/// </summary>
+		internal void ExitApplication()
+		{
+			_exitRequested = true;
+			m_window?.Close();
 		}
 
 		protected void OnExit(object sender, WindowEventArgs args)
@@ -321,7 +349,7 @@ namespace Crimson
 			if (HandleClosedEvents)
 			{
 				args.Handled = true;
-				m_window?.Hide();
+				HideMainWindow();
 				return;
 			}
 
@@ -337,7 +365,7 @@ namespace Crimson
 			}
 		}
 
-		private Window? m_window;
+		private MainWindow? m_window;
 
 		public Window GetWindow()
 		{

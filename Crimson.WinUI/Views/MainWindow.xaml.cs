@@ -125,6 +125,7 @@ public sealed partial class MainWindow : Window
 		_settingsManager = App.GetService<SettingsManager>();
 		_settingsManager.AcrylicEnabledChanged += OnAcrylicEnabledChanged;
 		_settingsManager.ThemeChanged += OnThemeChanged;
+		_settingsManager.CloseBehaviorChanged += OnCloseBehaviorChanged;
 		RootGrid.ActualThemeChanged += (_, _) => UpdateThemeChrome();
 		ApplyTheme(_settingsManager.Theme);
 		this.Closed += Window_Closed;
@@ -1411,6 +1412,23 @@ public sealed partial class MainWindow : Window
 			SystemBackdrop = new DesktopAcrylicBackdrop();
 	}
 
+	public bool IsWindowShown { get; private set; }
+
+	public void SetWindowShown(bool shown)
+	{
+		IsWindowShown = shown;
+		UpdateTrayIcon();
+	}
+
+	private void OnCloseBehaviorChanged(CloseBehavior behavior) => UpdateTrayIcon();
+
+	/// <summary>
+	/// While the window is hidden the tray is the way back to it. While it is open, only the
+	/// background mode keeps the icon.
+	/// </summary>
+	private void UpdateTrayIcon() =>
+		TrayIconView.SetIconVisible(!IsWindowShown || _settingsManager.CloseBehavior == CloseBehavior.RunInBackground);
+
 	private void Window_Closed(object sender, WindowEventArgs args)
 	{
 		// This handler runs before App.OnExit, which cancels the close and only hides the window
@@ -1421,6 +1439,11 @@ public sealed partial class MainWindow : Window
 
 		_settingsManager.AcrylicEnabledChanged -= OnAcrylicEnabledChanged;
 		_settingsManager.ThemeChanged -= OnThemeChanged;
+		_settingsManager.CloseBehaviorChanged -= OnCloseBehaviorChanged;
+
+		// Anything left open here would keep the process running after the main window is gone.
+		TrayIconView.RemoveIcon();
+		StorePopupWindow.CloseAll();
 
 		_libraryManager.LibraryUpdated -= LibraryUpdatedHandler;
 		_libraryManager.GameStatusUpdated -= GameStatusUpdatedHandler;
