@@ -248,6 +248,7 @@
 				</NavigationView.Resources>
 				<NavigationView.MenuItems>
 					<NavigationViewItem
+						x:Name="LibraryNavItem"
 						Content="Library"
 						Icon="Library"
 						Tag="Crimson.Views.LibraryPage" />

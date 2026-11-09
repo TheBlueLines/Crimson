@@ -118,6 +118,7 @@ public sealed partial class MainWindow : Window
 		foreach (var key in PaneBackgroundKeys)
 			NavControl.Resources[key] = _transparentChromeBrush;
 		ContentFrame.Navigating += ContentFrame_Navigating;
+		ContentFrame.Navigated += ContentFrame_Navigated;
 
 		_taskbarProgress = TaskbarProgress.TryCreate(this);
 
@@ -650,6 +651,39 @@ public sealed partial class MainWindow : Window
 			ContentFrame.Background = ContentBackground;
 	}
 
+	private void ContentFrame_Navigated(object sender, NavigationEventArgs e)
+	{
+		_currentGameAppName = e.SourcePageType == typeof(GameInfoPage) ? e.Parameter as string : null;
+		SyncNavSelectionWithPage();
+	}
+
+	/// <summary>
+	/// Points the pane at the page on screen. Back navigation and links between pages change the
+	/// page without invoking a pane item, so the selection cannot rely on clicks alone.
+	/// </summary>
+	private void SyncNavSelectionWithPage()
+	{
+		var page = ContentFrame.CurrentSourcePageType;
+		if (page is null)
+			return;
+
+		if (page == typeof(LibraryPage))
+			NavControl.SelectedItem = LibraryNavItem;
+		else if (page == typeof(StorePage) || page == typeof(StoreProductPage) || page == typeof(StoreWebPage))
+			NavControl.SelectedItem = StoreNavItem;
+		else if (page == typeof(DownloadsPage))
+			NavControl.SelectedItem = CurrentDownloadNavItem.Visibility == Visibility.Visible
+				? CurrentDownloadNavItem
+				: DownloadsNavItem;
+		else if (page == typeof(SettingsPage))
+			NavControl.SelectedItem = NavControl.SettingsItem;
+		else if (page == typeof(GameInfoPage) && _currentGameAppName is not null &&
+			_gameNavEntries.TryGetValue(_currentGameAppName, out var entry))
+			NavControl.SelectedItem = entry.Item;
+		else
+			NavControl.SelectedItem = null;
+	}
+
 	private void ShowGameBackground(string? imageUrl)
 	{
 		GameBackgroundBrush.ImageSource = CreateGameBackgroundImage(imageUrl);
@@ -805,6 +839,8 @@ public sealed partial class MainWindow : Window
 			ApplySuspendedVisual(item);
 
 		ApplyInstallVisual(_activeInstall);
+		// The rebuild replaced the game items, including a selected one.
+		SyncNavSelectionWithPage();
 	}
 
 	private void ApplySuspendedVisual(InstallItem installItem)
