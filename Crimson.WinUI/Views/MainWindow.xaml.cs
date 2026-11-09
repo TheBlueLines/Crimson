@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,7 +28,9 @@ namespace Crimson.Views;
 /// </summary>
 public sealed partial class MainWindow : Window
 {
-	private const int GameIconBoxHeight = 36;
+	private const int GameIconBoxHeight = 24;
+	private const int InitialWindowWidth = 1235;
+	private const int InitialWindowHeight = 675;
 
 	private static readonly string[] ProgressBackgroundKeys =
 	[
@@ -106,6 +109,7 @@ public sealed partial class MainWindow : Window
 	{
 		InitializeComponent();
 		SetWindowIcon();
+		ApplyInitialWindowBounds();
 
 		foreach (var key in PaneBackgroundKeys)
 			NavControl.Resources[key] = _transparentChromeBrush;
@@ -130,6 +134,7 @@ public sealed partial class MainWindow : Window
 			ApplySearchResultsBackground();
 		};
 		GlobalSearchBox.SizeChanged += (_, _) => UpdateTitleBarInteractiveRegion();
+		NavControl.SizeChanged += (_, _) => UpdateTitleBarInteractiveRegion();
 
 		_authManager = App.GetService<AuthManager>();
 		_installManager = App.GetService<InstallManager>();
@@ -146,8 +151,15 @@ public sealed partial class MainWindow : Window
 		NavControl.PaneClosing += (_, _) => UpdatePaneBlurWidth();
 		NavControl.PaneOpened += (_, _) => UpdatePaneDownloadState();
 		NavControl.PaneClosed += (_, _) => UpdatePaneDownloadState();
-		NavControl.DisplayModeChanged += (_, _) =>
+		NavControl.DisplayModeChanged += (_, args) =>
 		{
+			// Minimal mode puts the menu button beside the back button, where the search box would
+			// cover both, so the navigation buttons drop below the title bar in narrow windows.
+			var minimal = args.DisplayMode == NavigationViewDisplayMode.Minimal;
+			NavControl.Margin = new Thickness(0, minimal ? 49 : 0, 0, 0);
+			ContentFrame.Margin = new Thickness(0, minimal ? 0 : 49, 0, 0);
+			AppTitleContent.Margin = new Thickness(minimal ? 8 : 48, -4, 0, 0);
+			DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, UpdateTitleBarInteractiveRegion);
 			UpdatePaneBlurWidth();
 			UpdatePaneDownloadState();
 		};
@@ -209,6 +221,27 @@ public sealed partial class MainWindow : Window
 			_log.Warning("Window icon was not found at {IconPath}", iconPath);
 	}
 
+	[DllImport("user32.dll")]
+	private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+	/// <summary>
+	/// Opens centred at Fluent Launcher's default size, kept within the work area on small displays.
+	/// </summary>
+	private void ApplyInitialWindowBounds()
+	{
+		var scale = GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96d;
+		var workArea = Microsoft.UI.Windowing.DisplayArea
+			.GetFromWindowId(AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Primary)
+			.WorkArea;
+		var width = Math.Min((int)Math.Round(InitialWindowWidth * scale), workArea.Width);
+		var height = Math.Min((int)Math.Round(InitialWindowHeight * scale), workArea.Height);
+		AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(
+			workArea.X + (workArea.Width - width) / 2,
+			workArea.Y + (workArea.Height - height) / 2,
+			width,
+			height));
+	}
+
 	private void NavControl_BackRequested(NavigationView sender,
 	NavigationViewBackRequestedEventArgs args)
 	{
@@ -226,28 +259,38 @@ public sealed partial class MainWindow : Window
 
 	private void UpdateTitleBarInteractiveRegion()
 	{
-		if (!ExtendsContentIntoTitleBar || GlobalSearchBox.XamlRoot is null)
+		if (!ExtendsContentIntoTitleBar)
 			return;
 
-		var inputSource = InputNonClientPointerSource.GetForWindowId(AppWindow.Id);
-		if (GlobalSearchBox.Visibility != Visibility.Visible ||
-			GlobalSearchBox.ActualWidth <= 0 ||
-			GlobalSearchBox.ActualHeight <= 0)
+		var interactive = new List<Windows.Graphics.RectInt32>();
+		AddTitleBarPassthrough(interactive, GlobalSearchBox);
+		if (NavControl.Visibility == Visibility.Visible)
 		{
-			inputSource.SetRegionRects(NonClientRegionKind.Passthrough, []);
-			return;
+			// The menu button's top edge reaches into the title bar's drag area.
+			AddTitleBarPassthrough(interactive, FindDescendant<Button>(NavControl, "NavigationViewBackButton"));
+			AddTitleBarPassthrough(interactive, FindDescendant<Button>(NavControl, "TogglePaneButton"));
 		}
 
-		var scale = GlobalSearchBox.XamlRoot.RasterizationScale;
-		var bounds = GlobalSearchBox.TransformToVisual(null).TransformBounds(
-			new Windows.Foundation.Rect(0, 0, GlobalSearchBox.ActualWidth, GlobalSearchBox.ActualHeight));
-		inputSource.SetRegionRects(
-			NonClientRegionKind.Passthrough,
-			[new Windows.Graphics.RectInt32(
-				(int)Math.Round(bounds.X * scale),
-				(int)Math.Round(bounds.Y * scale),
-				(int)Math.Round(bounds.Width * scale),
-				(int)Math.Round(bounds.Height * scale))]);
+		InputNonClientPointerSource.GetForWindowId(AppWindow.Id)
+			.SetRegionRects(NonClientRegionKind.Passthrough, interactive.ToArray());
+	}
+
+	private static void AddTitleBarPassthrough(List<Windows.Graphics.RectInt32> rects, FrameworkElement? element)
+	{
+		if (element?.XamlRoot is null ||
+			element.Visibility != Visibility.Visible ||
+			element.ActualWidth <= 0 ||
+			element.ActualHeight <= 0)
+			return;
+
+		var scale = element.XamlRoot.RasterizationScale;
+		var bounds = element.TransformToVisual(null).TransformBounds(
+			new Windows.Foundation.Rect(0, 0, element.ActualWidth, element.ActualHeight));
+		rects.Add(new Windows.Graphics.RectInt32(
+			(int)Math.Round(bounds.X * scale),
+			(int)Math.Round(bounds.Y * scale),
+			(int)Math.Round(bounds.Width * scale),
+			(int)Math.Round(bounds.Height * scale)));
 	}
 
 	// The popup is a separate window. Dark mode can use the acrylic layer behind it.
@@ -783,9 +826,9 @@ public sealed partial class MainWindow : Window
 
 		var playButton = new Button
 		{
-			Content = new FontIcon { Glyph = isRunning ? "\uE71A" : "\uE768", FontSize = 16 },
-			Width = 40,
-			Height = 40,
+			Content = new FontIcon { Glyph = isRunning ? "\uE71A" : "\uE768", FontSize = 14 },
+			Width = 32,
+			Height = 32,
 			Padding = new Thickness(0),
 			CornerRadius = new CornerRadius(6),
 			Margin = new Thickness(4, 0, 0, 0),

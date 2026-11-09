@@ -39,7 +39,7 @@
 				x:Name="GameName"
 				Grid.Row="0"
 				HorizontalAlignment="Left"
-				Style="{ThemeResource SubtitleTextBlockStyle}"
+				Style="{ThemeResource BodyTextBlockStyle}"
 				TextTrimming="WordEllipsis"
 				TextWrapping="NoWrap" />
 			<ProgressBar

@@ -129,21 +129,7 @@
 		<Grid
 			x:Name="AppTitleBar"
 			Grid.Row="0"
-			Background="Transparent">
-			<Image
-				Width="16"
-				Height="16"
-				Margin="8,0"
-				HorizontalAlignment="Left"
-				Source="/Images/WindowIcon.png" />
-			<TextBlock
-				x:Name="AppTitleTextBlock"
-				Margin="28,0,0,0"
-				VerticalAlignment="Center"
-				Style="{StaticResource CaptionTextBlockStyle}"
-				Text="Crimson"
-				TextWrapping="NoWrap" />
-		</Grid>
+			Background="Transparent" />
 		<AutoSuggestBox
 			x:Name="GlobalSearchBox"
 			Grid.Row="0"
@@ -240,24 +226,21 @@
 			</AutoSuggestBox.ItemTemplate>
 		</AutoSuggestBox>
 
-		<Grid Grid.Row="1">
+		<!--
+			Spans the title bar so the back button sits in it; ContentFrame stays below the title bar.
+			The 1px offsets line the buttons up with Fluent Launcher's.
+		-->
+		<Grid Grid.RowSpan="2" Margin="0,-1,0,0">
 			<NavigationView
 				x:Name="NavControl"
 				BackRequested="NavControl_BackRequested"
 				Background="Transparent"
 				IsBackEnabled="True"
+				IsPaneOpen="False"
 				ItemInvoked="NavControl_ItemInvoked"
-				CompactPaneLength="56"
-				OpenPaneLength="340">
+				OpenPaneLength="300">
 				<NavigationView.Resources>
-					<!--  Taller pane items than the stock default, to fit game box art.  -->
-					<x:Double x:Key="NavigationViewItemOnLeftMinHeight">56</x:Double>
-					<!--
-						Shared by every row, so it stays near the 16px stock value to keep the
-						Library, Downloads and Settings glyphs proportioned. Game rows raise it
-						on themselves in MainWindow.CreateInstalledGameItem.
-					-->
-					<x:Double x:Key="NavigationViewItemOnLeftIconBoxHeight">18</x:Double>
+					<Thickness x:Key="NavigationViewPaneContentGridMargin">-1,2,-1,3</Thickness>
 					<SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
 					<SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="Transparent" />
 					<Thickness x:Key="NavigationViewContentGridBorderThickness">0</Thickness>
@@ -280,6 +263,7 @@
 				<!--  Only the content area is dimmed; the pane and title bar show the Mica backdrop.  -->
 				<Frame
 					x:Name="ContentFrame"
+					Margin="0,49,0,0"
 					Background="{ThemeResource SmokeFillColorDefaultBrush}"
 					HorizontalContentAlignment="Stretch"
 					IsTabStop="True"
@@ -318,6 +302,27 @@
 				</NavigationView.FooterMenuItems>
 			</NavigationView>
 
+		</Grid>
+		<!--  Above the navigation pane, which reaches into the title bar.  -->
+		<Grid
+			x:Name="AppTitleContent"
+			Grid.Row="0"
+			Margin="48,-4,0,0"
+			HorizontalAlignment="Left"
+			Canvas.ZIndex="1"
+			IsHitTestVisible="False">
+			<Image
+				Width="16"
+				Height="16"
+				HorizontalAlignment="Left"
+				Source="/Images/WindowIcon.png" />
+			<TextBlock
+				x:Name="AppTitleTextBlock"
+				Margin="28,0,0,0"
+				VerticalAlignment="Center"
+				Style="{StaticResource CaptionTextBlockStyle}"
+				Text="Crimson"
+				TextWrapping="NoWrap" />
 		</Grid>
 		<!--
 			The search results popup is its own window and Windows draws no backdrop behind it, so
