@@ -208,8 +208,7 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 		try
 		{
 			if (installItem == null || Game is null) return;
-			if (installItem.AppName != Game.AppName && installItem.ContentOwnerAppName != Game.AppName &&
-				!_libraryManager.GetDlcsForGame(Game.AppName).Any(dlc => dlc.AppName == installItem.AppName)) return;
+			if (!AffectsCurrentGame(installItem)) return;
 			_uiDispatcher.TryEnqueue(() =>
 			{
 				CanManageContent = _installer.CanManageContent(Game.AppName);
@@ -217,37 +216,10 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 				switch (installItem.Status)
 				{
 					case ActionStatus.Processing:
-						IsProgressRingIndeterminate = false;
-						ProgressValue = Convert.ToDouble(installItem.ProgressPercentage);
-						IsProgressRingVisible = true;
-						IsPrimaryActionEnabled = false;
-						PrimaryActionButtonText = $"{installItem.ProgressPercentage}%";
-						break;
 					case ActionStatus.Pending:
-						PrimaryActionButtonText = "Pending...";
-						IsProgressRingVisible = true;
-						IsProgressRingIndeterminate = true;
-						break;
-
-					case ActionStatus.Paused when installItem.IsVerifying:
-						PrimaryActionButtonText = "Checking files...";
-						IsProgressRingVisible = true;
-						IsProgressRingIndeterminate = true;
-						IsPrimaryActionEnabled = true;
-						break;
-
 					case ActionStatus.Paused:
-						PrimaryActionButtonText = "Paused";
-						IsProgressRingVisible = true;
-						IsProgressRingIndeterminate = false;
-						ProgressValue = Convert.ToDouble(installItem.ProgressPercentage);
-						IsPrimaryActionEnabled = true;
-						break;
-
 					case ActionStatus.Cancelling:
-						PrimaryActionButtonText = "Cancelling...";
-						IsProgressRingVisible = true;
-						IsProgressRingIndeterminate = true;
+						ApplyInstallProgress(installItem);
 						break;
 
 					case ActionStatus.Success:
@@ -288,6 +260,68 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 		}
 	}
 
+	private bool AffectsCurrentGame(InstallItem installItem) =>
+		Game is not null &&
+		(installItem.AppName == Game.AppName || installItem.ContentOwnerAppName == Game.AppName ||
+		 _libraryManager.GetDlcsForGame(Game.AppName).Any(dlc => dlc.AppName == installItem.AppName));
+
+	private void ApplyInstallProgress(InstallItem installItem)
+	{
+		switch (installItem.Status)
+		{
+			case ActionStatus.Processing:
+				IsProgressRingIndeterminate = false;
+				ProgressValue = Convert.ToDouble(installItem.ProgressPercentage);
+				IsProgressRingVisible = true;
+				IsPrimaryActionEnabled = false;
+				PrimaryActionButtonText = $"{installItem.ProgressPercentage}%";
+				break;
+
+			case ActionStatus.Pending:
+				PrimaryActionButtonText = "Pending...";
+				IsProgressRingVisible = true;
+				IsProgressRingIndeterminate = true;
+				break;
+
+			case ActionStatus.Paused when installItem.IsVerifying:
+				PrimaryActionButtonText = "Checking files...";
+				IsProgressRingVisible = true;
+				IsProgressRingIndeterminate = true;
+				IsPrimaryActionEnabled = true;
+				break;
+
+			case ActionStatus.Paused:
+				PrimaryActionButtonText = "Paused";
+				IsProgressRingVisible = true;
+				IsProgressRingIndeterminate = false;
+				ProgressValue = Convert.ToDouble(installItem.ProgressPercentage);
+				IsPrimaryActionEnabled = true;
+				break;
+
+			case ActionStatus.Cancelling:
+				PrimaryActionButtonText = "Cancelling...";
+				IsProgressRingVisible = true;
+				IsProgressRingIndeterminate = true;
+				break;
+		}
+	}
+
+	/// <summary>
+	/// The install or queued action this page should be showing, whether it is on the pipeline,
+	/// waiting its turn, or paused off the pipeline by another download.
+	/// </summary>
+	private InstallItem? FindActiveInstall()
+	{
+		if (Game is null)
+			return null;
+
+		var candidates = new[] { _installer.CurrentInstall, _installer.GameGameInQueue(Game.AppName) }
+			.Concat(_installer.SuspendedInstalls);
+		return candidates.FirstOrDefault(item =>
+			item?.Status is ActionStatus.Pending or ActionStatus.Processing or ActionStatus.Paused or ActionStatus.Cancelling &&
+			AffectsCurrentGame(item));
+	}
+
 	private void CheckGameStatus(Game updatedGame)
 	{
 		if (updatedGame == null || updatedGame.AppName != Game?.AppName) return;
@@ -298,6 +332,17 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 	}
 
 	private void ApplyGameStatus()
+	{
+		if (Game is null)
+			return;
+
+		ApplyInstalledGameState();
+		// An install in progress outranks the game's on-disk state, which still reads NotInstalled.
+		if (FindActiveInstall() is { } activeInstall)
+			ApplyInstallProgress(activeInstall);
+	}
+
+	private void ApplyInstalledGameState()
 	{
 		if (Game is null)
 			return;
