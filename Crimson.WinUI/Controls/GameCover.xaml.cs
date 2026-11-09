@@ -69,7 +69,8 @@ public sealed partial class GameCover : UserControl
 		var version = ++_loadVersion;
 		// A recycled card drops the request for the cover it showed before, so scrolling quickly
 		// does not leave the visible cards waiting behind ones that are no longer on screen.
-		_loadCancellation?.Cancel();
+		if (_loadCancellation is { } previousLoad)
+			_ = Task.Run(previousLoad.Cancel);
 		_loadCancellation = null;
 		ColorImage.Source = null;
 		GrayImage.Source = null;
@@ -135,8 +136,14 @@ public sealed partial class GameCover : UserControl
 
 	// Original artwork rather than a CDN-resized variant: Epic resizes on a cache miss, which
 	// takes seconds per cover, while originals are served from the edge immediately.
-	private static Task<string> GetCachedFileAsync(string url, CancellationToken cancellationToken) =>
-		Cache.GetAsync(url, cancellationToken);
+	// ImageUrl is set during ItemsRepeater layout, so everything that can take the cache's lock runs
+	// off the UI thread: waiting on a contended lock pumps messages, and XAML fails fast when that
+	// re-enters it mid-layout. Cancelling counts, because the token's callback takes the lock too.
+	private static Task<string> GetCachedFileAsync(string url, CancellationToken cancellationToken)
+	{
+		var cache = Cache;
+		return Task.Run(() => cache.GetAsync(url, cancellationToken), cancellationToken);
+	}
 
 	private static async Task<SoftwareBitmapSource> CreateGrayscaleAsync(string path)
 	{
