@@ -12,8 +12,8 @@ namespace Crimson.Models;
 
 public sealed class Manifest
 {
-	private const uint HeaderMagic = 0x44BEC00C;
-	private const int ExpectedHeaderSize = 41;
+	internal const uint HeaderMagic = 0x44BEC00C;
+	internal const int ExpectedHeaderSize = 41;
 	// legendary handles feature levels 12 (Unreal Tournament) through 24; anything inside that
 	// band must parse. Narrower bounds rejected manifests the previous parser accepted.
 	private const int MinimumSupportedVersion = 12;

@@ -7,4 +7,6 @@ class Settings
 	public bool AcrylicEnabled { get; set; } = true;
 
 	public string DefaultInstallLocation { get; set; }
+
+	public bool CloudSaveAutoSync { get; set; }
 }

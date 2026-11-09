@@ -34,6 +34,17 @@ namespace Crimson.ViewModels
 			}
 		}
 
+		public bool CloudSaveAutoSync
+		{
+			get => _settingsManager.CloudSaveAutoSync;
+			set
+			{
+				_settingsManager.CloudSaveAutoSync = value;
+				OnPropertyChanged();
+				_ = SaveSettingsAsync();
+			}
+		}
+
 		public string DefaultInstallLocation
 		{
 			get => _settingsManager.DefaultInstallLocation;

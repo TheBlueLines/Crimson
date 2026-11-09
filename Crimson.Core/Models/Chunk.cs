@@ -11,7 +11,7 @@ namespace Crimson.Models;
 
 public sealed class Chunk
 {
-	private const uint HeaderMagic = 0xB1FE3AA2;
+	internal const uint HeaderMagic = 0xB1FE3AA2;
 	private uint[] _guid;
 	private byte[] _storedPayload = [];
 	private byte[]? _data;

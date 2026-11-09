@@ -64,6 +64,12 @@
 					<ToggleSwitch IsOn="{x:Bind ViewModel.AcrylicEnabled, Mode=TwoWay}" />
 				</toolkit:SettingsCard>
 
+				<TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Cloud saves" />
+
+				<toolkit:SettingsCard Description="Sync saves before a game starts and after it closes. If both copies changed, Crimson asks which one to keep" Header="Sync automatically">
+					<ToggleSwitch IsOn="{x:Bind ViewModel.CloudSaveAutoSync, Mode=TwoWay}" />
+				</toolkit:SettingsCard>
+
 				<TextBlock Style="{StaticResource SettingsSectionHeaderTextBlockStyle}" Text="Accounts" />
 
 				<toolkit:SettingsCard

@@ -42,6 +42,7 @@
 - Add or remove DLC and optional components of installed games.
 - Pause, resume, or cancel downloads. Interrupted downloads resume where they stopped, even after a crash or reboot.
 - Launch games with fresh Epic credentials and ownership tokens when required, and stop a running game from Crimson.
+- Sync saves with Epic's cloud save service for games that support it, from **Manage → Sync cloud saves** or automatically around play sessions.
 - Switch between an acrylic look and a solid one.
 - Optionally create per-game Start menu and desktop shortcuts.
 
@@ -103,7 +104,7 @@ The **Store** shows free games, new releases, sales, and search results, with pr
 
 The portable build keeps its data under `%LOCALAPPDATA%\Crimson`. Packaged builds can map that location into Windows-managed package storage. Use **Settings → Open Logs Directory** to open the effective log location for the running build.
 
-Application data includes logs, the embedded Epic sign-in and Store browser profile, cached metadata and artwork, manifests, and installation state.
+Application data includes logs, the embedded Epic sign-in and Store browser profile, cached metadata and artwork, manifests, and installation state. Before a cloud download replaces save files, Crimson copies them to `cloud-saves\backups` in that folder and keeps the five most recent copies per game.
 
 Epic credentials stored by the Windows frontend are encrypted at rest with Windows Data Protection API (DPAPI). Crimson attempts to remove temporary ownership-token files after the game exits. Closing Crimson first or an interrupted shutdown can leave those files on disk.
 

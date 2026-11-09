@@ -21,6 +21,15 @@ public class Game
 	[JsonPropertyName("metadata")]
 	public required Metadata Metadata { get; set; }
 
+	/// <summary>
+	/// Unknown catalog attributes are dropped when metadata is cached, so a cached record that
+	/// predates a newly modeled attribute has to be fetched again.
+	/// </summary>
+	internal const int CurrentMetadataSchema = 1;
+
+	[JsonPropertyName("metadata_schema")]
+	public int MetadataSchema { get; set; }
+
 	[JsonIgnore]
 	public LocalAppState? LocalAppState { get; set; }
 
@@ -223,6 +232,24 @@ public class CustomAttributes
 
 	[JsonPropertyName("DlcProcessNames")]
 	public DlcProcessNames DlcProcessNames { get; set; }
+
+	[JsonPropertyName("CloudSaveFolder")]
+	public CloudSaveAttribute? CloudSaveFolder { get; set; }
+
+	[JsonPropertyName("CloudIncludeList")]
+	public CloudSaveAttribute? CloudIncludeList { get; set; }
+
+	[JsonPropertyName("CloudExcludeList")]
+	public CloudSaveAttribute? CloudExcludeList { get; set; }
+}
+
+public class CloudSaveAttribute
+{
+	[JsonPropertyName("type")]
+	public string? Type { get; set; }
+
+	[JsonPropertyName("value")]
+	public string? Value { get; set; }
 }
 
 public class DlcItemList

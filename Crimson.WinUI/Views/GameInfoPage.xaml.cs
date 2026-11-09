@@ -33,6 +33,9 @@ public sealed partial class GameInfoPage : Page
 		base.OnNavigatedFrom(e);
 	}
 
+	public InfoBarSeverity GetCloudSaveSeverity(bool isError) =>
+		isError ? InfoBarSeverity.Error : InfoBarSeverity.Informational;
+
 	private async Task ShowInstallDialog()
 	{
 		if (ViewModel.Game is not { } game)

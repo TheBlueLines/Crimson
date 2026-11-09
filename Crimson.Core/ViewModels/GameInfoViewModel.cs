@@ -22,6 +22,7 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 	private readonly InstallManager _installer;
 	private readonly LibraryManager _libraryManager;
 	private readonly Storage _storage;
+	private readonly CloudSaveManager _cloudSaves;
 	private readonly ILogger<GameInfoViewModel> _log;
 
 	[ObservableProperty]
@@ -60,6 +61,24 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 	[ObservableProperty]
 	private string _installErrorMessage = string.Empty;
 
+	[ObservableProperty]
+	private bool _isCloudSaveSupported;
+
+	[ObservableProperty]
+	private bool _isCloudSaveStatusVisible;
+
+	[ObservableProperty]
+	private bool _isCloudSaveError;
+
+	[ObservableProperty]
+	private string _cloudSaveStatus = string.Empty;
+
+	[ObservableProperty]
+	private bool _isCloudSaveConflictVisible;
+
+	[ObservableProperty]
+	private string _cloudSaveConflictMessage = string.Empty;
+
 	// Event for showing install dialog
 	public event Func<Task> ShowInstallDialogRequested;
 	public event Action CloseInstallDialogRequested;
@@ -71,8 +90,10 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 			InstallManager installer,
 			LibraryManager libraryManager,
 			Storage storage,
-			IUiDispatcher uiDispatcher)
+			IUiDispatcher uiDispatcher,
+			CloudSaveManager cloudSaves)
 	{
+		_cloudSaves = cloudSaves;
 		_uiDispatcher = uiDispatcher;
 		_log = logger;
 		_installer = installer;
@@ -95,11 +116,19 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 		_libraryManager.GameStatusUpdated += CheckGameStatus;
 		_installer.InstallationStatusChanged += HandleInstallationStatusChanged;
 		_installer.InstallProgressUpdate += HandleInstallationStatusChanged;
+		_cloudSaves.SyncCompleted += HandleCloudSaveSyncCompleted;
 
+		// Anything that still needs attention from a sync that ran while this page was closed.
+		IsCloudSaveStatusVisible = false;
+		IsCloudSaveConflictVisible = false;
+		if (Game is not null && _cloudSaves.GetLastResult(Game.AppName) is
+			{ Outcome: CloudSaveOutcome.Conflict or CloudSaveOutcome.Failed } pending)
+			ApplyCloudSaveResult(pending);
 	}
 
 	private void UnregisterEventHandlers()
 	{
+		_cloudSaves.SyncCompleted -= HandleCloudSaveSyncCompleted;
 		_libraryManager.GameStatusUpdated -= CheckGameStatus;
 		_installer.InstallationStatusChanged -= HandleInstallationStatusChanged;
 		_installer.InstallProgressUpdate -= HandleInstallationStatusChanged;
@@ -274,6 +303,7 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 			return;
 
 		CanManageContent = _installer.CanManageContent(Game.AppName);
+		IsCloudSaveSupported = _cloudSaves.IsSupported(Game);
 		IsProgressRingVisible = false;
 		IsPrimaryActionEnabled = true;
 		PrimaryAction = GetPrimaryAction(Game.LocalAppState?.InstallStatus, _libraryManager.IsAppRunning(Game.AppName));
@@ -312,6 +342,42 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 				IsInstalled = true;
 				break;
 		}
+	}
+
+	[RelayCommand]
+	private Task SyncCloudSavesAsync() => RunCloudSaveSyncAsync(CloudSaveResolution.Automatic);
+
+	[RelayCommand]
+	private Task KeepLocalCloudSaveAsync() => RunCloudSaveSyncAsync(CloudSaveResolution.KeepLocal);
+
+	[RelayCommand]
+	private Task UseCloudSaveAsync() => RunCloudSaveSyncAsync(CloudSaveResolution.UseCloud);
+
+	private async Task RunCloudSaveSyncAsync(CloudSaveResolution resolution)
+	{
+		if (Game is null)
+			return;
+
+		IsCloudSaveConflictVisible = false;
+		IsCloudSaveError = false;
+		CloudSaveStatus = "Syncing...";
+		IsCloudSaveStatusVisible = true;
+		await _cloudSaves.SyncAsync(Game.AppName, resolution);
+	}
+
+	private void HandleCloudSaveSyncCompleted(string appName, CloudSaveResult result)
+	{
+		if (appName == Game?.AppName)
+			_uiDispatcher.TryEnqueue(() => ApplyCloudSaveResult(result));
+	}
+
+	private void ApplyCloudSaveResult(CloudSaveResult result)
+	{
+		IsCloudSaveConflictVisible = result.Outcome == CloudSaveOutcome.Conflict;
+		CloudSaveConflictMessage = IsCloudSaveConflictVisible ? result.Message : string.Empty;
+		IsCloudSaveError = result.Outcome == CloudSaveOutcome.Failed;
+		CloudSaveStatus = result.Message;
+		IsCloudSaveStatusVisible = result.Outcome is not (CloudSaveOutcome.NotSupported or CloudSaveOutcome.Conflict);
 	}
 
 	private void ClearInstallError()
@@ -436,6 +502,7 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 
 	public void Cleanup()
 	{
+		_cloudSaves.SyncCompleted -= HandleCloudSaveSyncCompleted;
 		_libraryManager.GameStatusUpdated -= CheckGameStatus;
 		_installer.InstallationStatusChanged -= HandleInstallationStatusChanged;
 		_installer.InstallProgressUpdate -= HandleInstallationStatusChanged;

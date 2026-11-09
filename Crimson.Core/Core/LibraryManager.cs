@@ -29,12 +29,17 @@ public class LibraryManager
 
 	public event Action<IEnumerable<Game>> LibraryUpdated;
 	public event Action<Game> GameStatusUpdated;
+	public event Action<Game>? AppExited;
+
+	/// <summary>Runs before a game starts. A failure here is logged and never blocks the launch.</summary>
+	public Func<Game, Task>? BeforeLaunch { get; set; }
 
 	private static readonly TimeSpan GracefulStopTimeout = TimeSpan.FromSeconds(20);
 	private static readonly TimeSpan ForcedStopTimeout = TimeSpan.FromSeconds(10);
 
 	private readonly ConcurrentDictionary<string, int> _runningApps = new();
 	private readonly ConcurrentDictionary<string, byte> _stoppingApps = new();
+	private readonly ConcurrentDictionary<string, byte> _launchingApps = new();
 	public bool IsAppRunning(string appName) => _runningApps.ContainsKey(appName);
 	public bool IsAppStopping(string appName) => _stoppingApps.ContainsKey(appName);
 
@@ -154,22 +159,49 @@ public class LibraryManager
 			if (launchContext is null)
 				return false;
 
-			var (gameInfo, game) = launchContext.Value;
-			var credentials = await GetLaunchCredentialsAsync(appName);
-			if (credentials is null)
+			if (!_launchingApps.TryAdd(appName, 0))
 				return false;
 
-			if (gameInfo.RequiresOt)
-				ownershipTokenPath = await CreateOwnershipTokenFileAsync(game);
+			try
+			{
+				var (gameInfo, game) = launchContext.Value;
+				// Before the credentials: an exchange code expires quickly and a sync can take a while.
+				await RunBeforeLaunchAsync(game);
+				var credentials = await GetLaunchCredentialsAsync(appName);
+				if (credentials is null)
+					return false;
 
-			var (exchangeCode, userData) = credentials.Value;
-			return StartGame(gameInfo, game, exchangeCode, userData, ownershipTokenPath);
+				if (gameInfo.RequiresOt)
+					ownershipTokenPath = await CreateOwnershipTokenFileAsync(game);
+
+				var (exchangeCode, userData) = credentials.Value;
+				return StartGame(gameInfo, game, exchangeCode, userData, ownershipTokenPath);
+			}
+			finally
+			{
+				_launchingApps.TryRemove(appName, out _);
+			}
 		}
 		catch (Exception ex)
 		{
 			DeleteOwnershipToken(ownershipTokenPath);
 			_log.Error(ex, "LaunchApp failed");
 			return false;
+		}
+	}
+
+	private async Task RunBeforeLaunchAsync(Game game)
+	{
+		if (BeforeLaunch is null)
+			return;
+
+		try
+		{
+			await BeforeLaunch(game);
+		}
+		catch (Exception ex)
+		{
+			_log.Warning(ex, "LaunchApp: Pre-launch work failed for {AppName}", game.AppName);
 		}
 	}
 
@@ -319,6 +351,7 @@ public class LibraryManager
 			DeleteOwnershipToken(path);
 			_runningApps.TryRemove(game.AppName, out _);
 			GameStatusUpdated?.Invoke(game);
+			AppExited?.Invoke(game);
 		}
 	}
 
@@ -467,7 +500,8 @@ public class LibraryManager
 
 			var game = _storage.GetGameMetaData(asset.AppName);
 			var assetUpdated = game is not null &&
-				asset.BuildVersion != game.AssetInfos.Windows.BuildVersion;
+				(asset.BuildVersion != game.AssetInfos.Windows.BuildVersion ||
+				 game.MetadataSchema < Game.CurrentMetadataSchema);
 			if (game is not null && !forceMetadataUpdate && !assetUpdated)
 				continue;
 
@@ -507,7 +541,8 @@ public class LibraryManager
 				{
 					Windows = asset
 				},
-				Metadata = metadata
+				Metadata = metadata,
+				MetadataSchema = Game.CurrentMetadataSchema
 			});
 		});
 

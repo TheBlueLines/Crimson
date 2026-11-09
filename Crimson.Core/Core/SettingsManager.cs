@@ -66,6 +66,12 @@ public class SettingsManager
 		set { Settings.DefaultInstallLocation = value; }
 	}
 
+	public bool CloudSaveAutoSync
+	{
+		get => Settings.CloudSaveAutoSync;
+		set => Settings.CloudSaveAutoSync = value;
+	}
+
 	public string LogsDirectory => _logsDirectory;
 
 	private Settings LoadSettings()

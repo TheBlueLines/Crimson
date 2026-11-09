@@ -14,6 +14,7 @@ public static class EpicEndpointPolicy
 	{
 		"account-public-service-prod03.ol.epicgames.com",
 		"catalog-public-service-prod06.ol.epicgames.com",
+		"datastorage-public-service-liveegs.live.use1a.on.epicgames.com",
 		"ecommerceintegration-public-service-ecomprod02.ol.epicgames.com",
 		"launcher-public-service-prod06.ol.epicgames.com"
 	};
@@ -51,6 +52,8 @@ public static class EpicEndpointPolicy
 
 	public static Uri RequireContentUri(string value) => Require(value, IsAllowedContentUri, "Epic content");
 
+	public static Uri RequireCloudSaveLinkUri(string value) => Require(value, IsAllowedCloudSaveLinkUri, "Epic cloud save");
+
 	public static Uri RequireStoreUri(string value) => Require(value, IsAllowedStoreUri, "Epic Store");
 
 	public static Uri RequireStoreApiUri(string value) => Require(value, IsAllowedStoreApiUri, "Epic Store API");
@@ -66,6 +69,9 @@ public static class EpicEndpointPolicy
 
 	public static bool IsAllowedContentUri(Uri uri) => IsHttps(uri) &&
 		ContentHostSuffixes.Any(suffix => uri.Host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
+
+	public static bool IsAllowedCloudSaveLinkUri(Uri uri) => IsAllowedContentUri(uri) ||
+		(IsHttps(uri) && uri.Host.EndsWith(".amazonaws.com", StringComparison.OrdinalIgnoreCase));
 
 	private static Uri Require(string value, Func<Uri, bool> predicate, string category)
 	{

@@ -23,14 +23,39 @@
 				<RowDefinition Height="*" />
 			</Grid.RowDefinitions>
 
-			<InfoBar
+			<StackPanel
 				Grid.Row="0"
 				HorizontalAlignment="Left"
-				IsClosable="True"
-				IsOpen="{x:Bind ViewModel.IsInstallErrorVisible, Mode=TwoWay}"
-				Message="{x:Bind ViewModel.InstallErrorMessage, Mode=OneWay}"
-				Severity="Error"
-				Title="Installation failed" />
+				Spacing="8">
+				<InfoBar
+					IsClosable="True"
+					IsOpen="{x:Bind ViewModel.IsInstallErrorVisible, Mode=TwoWay}"
+					Message="{x:Bind ViewModel.InstallErrorMessage, Mode=OneWay}"
+					Severity="Error"
+					Title="Installation failed" />
+
+				<InfoBar
+					IsClosable="True"
+					IsOpen="{x:Bind ViewModel.IsCloudSaveStatusVisible, Mode=TwoWay}"
+					Message="{x:Bind ViewModel.CloudSaveStatus, Mode=OneWay}"
+					Severity="{x:Bind GetCloudSaveSeverity(ViewModel.IsCloudSaveError), Mode=OneWay}"
+					Title="Cloud saves" />
+
+				<InfoBar
+					IsClosable="False"
+					IsOpen="{x:Bind ViewModel.IsCloudSaveConflictVisible, Mode=OneWay}"
+					Message="{x:Bind ViewModel.CloudSaveConflictMessage, Mode=OneWay}"
+					Severity="Warning"
+					Title="Cloud save conflict">
+					<StackPanel
+						Margin="0,0,0,12"
+						Orientation="Horizontal"
+						Spacing="8">
+						<Button Command="{x:Bind ViewModel.KeepLocalCloudSaveCommand}" Content="Keep local saves" />
+						<Button Command="{x:Bind ViewModel.UseCloudSaveCommand}" Content="Use cloud saves" />
+					</StackPanel>
+				</InfoBar>
+			</StackPanel>
 
 			<StackPanel
 				Grid.Row="1"
@@ -89,6 +114,14 @@
 									<MenuFlyoutItem Command="{x:Bind ViewModel.VerifyRepairCommand}" Text="Verify / Repair">
 										<MenuFlyoutItem.Icon>
 											<FontIcon Glyph="&#xE90F;" />
+										</MenuFlyoutItem.Icon>
+									</MenuFlyoutItem>
+									<MenuFlyoutItem
+										Command="{x:Bind ViewModel.SyncCloudSavesCommand}"
+										Text="Sync cloud saves"
+										Visibility="{x:Bind ViewModel.IsCloudSaveSupported, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+										<MenuFlyoutItem.Icon>
+											<FontIcon Glyph="&#xE753;" />
 										</MenuFlyoutItem.Icon>
 									</MenuFlyoutItem>
 									<MenuFlyoutItem Command="{x:Bind ViewModel.MoveGameCommand}" Text="Move">

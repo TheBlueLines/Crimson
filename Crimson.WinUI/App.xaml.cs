@@ -145,6 +145,21 @@ namespace Crimson
 					provider.GetRequiredService<ILogger>(),
 					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicStore")));
 				services.AddSingleton<LibraryManager>();
+				services.AddSingleton<ICloudSaveRepository>(provider => new EpicCloudSaveRepository(
+					provider.GetRequiredService<AuthManager>(),
+					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicApi"),
+					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicContent")));
+				services.AddSingleton<CloudSaveManager>(provider =>
+				{
+					var authManager = provider.GetRequiredService<AuthManager>();
+					return new CloudSaveManager(
+						provider.GetRequiredService<ILogger>(),
+						provider.GetRequiredService<ICloudSaveRepository>(),
+						provider.GetRequiredService<LibraryManager>(),
+						provider.GetRequiredService<SettingsManager>(),
+						async () => (await authManager.GetUserData())?.AccountId,
+						Path.Combine(GetAppDataPath(), "cloud-saves"));
+				});
 				services.AddSingleton<IGameShortcutManager>(provider => new GameShortcutManager(
 					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicContent"),
 					provider.GetRequiredService<ILogger>()));
@@ -163,6 +178,9 @@ namespace Crimson
 				services.AddTransient<AppInstallDialogViewModel>();
 			}).
 			Build();
+
+			// Created now so its launch hooks also cover games started from shortcuts.
+			Host.Services.GetRequiredService<CloudSaveManager>();
 		}
 
 		private static string GetAppDataPath() => AppDataPaths.Root;
