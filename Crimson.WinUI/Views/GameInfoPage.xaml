@@ -98,7 +98,7 @@
 						<DropDownButton.Flyout>
 							<MenuFlyout Placement="Top">
 								<MenuFlyout.MenuFlyoutPresenterStyle>
-									<Style TargetType="MenuFlyoutPresenter">
+									<Style BasedOn="{StaticResource DefaultMenuFlyoutPresenterStyle}" TargetType="MenuFlyoutPresenter">
 										<Setter Property="MinWidth" Value="170" />
 									</Style>
 								</MenuFlyout.MenuFlyoutPresenterStyle>
