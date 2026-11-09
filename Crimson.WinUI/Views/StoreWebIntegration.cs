@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading.Tasks;
+using Crimson.Utils;
 using Microsoft.Web.WebView2.Core;
 
 namespace Crimson.Views;
@@ -75,6 +76,7 @@ internal static class StoreWebIntegration
 
 	public static async Task ApplyAsync(CoreWebView2 webView)
 	{
+		WebViewEnvironmentFactory.DenyMediaCapture(webView);
 		await webView.AddScriptToExecuteOnDocumentCreatedAsync(Script);
 	}
 }

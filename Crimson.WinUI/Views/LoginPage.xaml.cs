@@ -164,6 +164,7 @@ public sealed partial class LoginPage : Page
 			}
 
 			webView.CoreWebView2.Settings.UserAgent = $"EpicGamesLauncher/{EpicGamesLauncherVersion}";
+			WebViewEnvironmentFactory.DenyMediaCapture(webView.CoreWebView2);
 
 			webView.CoreWebView2.CookieManager.DeleteAllCookies();
 			webView.NavigationStarting += WebView_NavigationStarting;

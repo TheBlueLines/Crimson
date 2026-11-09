@@ -31,6 +31,18 @@ public static class WebViewEnvironmentFactory
 			string.Empty, userDataFolder, new CoreWebView2EnvironmentOptions());
 	}
 
+	/// <summary>
+	/// Crimson has no use for a camera or microphone, so pages never get to prompt for them.
+	/// </summary>
+	public static void DenyMediaCapture(CoreWebView2 webView)
+	{
+		webView.PermissionRequested += (_, args) =>
+		{
+			if (args.PermissionKind is CoreWebView2PermissionKind.Camera or CoreWebView2PermissionKind.Microphone)
+				args.State = CoreWebView2PermissionState.Deny;
+		};
+	}
+
 	public static Task WaitForLoadedAsync(FrameworkElement element)
 	{
 		if (element.IsLoaded)
