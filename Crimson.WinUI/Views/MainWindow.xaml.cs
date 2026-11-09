@@ -163,7 +163,7 @@ public sealed partial class MainWindow : Window
 			// cover both, so the navigation buttons drop below the title bar in narrow windows.
 			var minimal = args.DisplayMode == NavigationViewDisplayMode.Minimal;
 			NavControl.Margin = new Thickness(0, minimal ? 49 : 0, 0, 0);
-			ContentFrame.Margin = new Thickness(0, minimal ? 0 : 49, 0, 0);
+			ContentHost.Margin = new Thickness(0, minimal ? 0 : 49, 0, 0);
 			AppTitleContent.Margin = new Thickness(minimal ? 8 : 48, -4, 0, 0);
 			DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, UpdateTitleBarInteractiveRegion);
 			UpdatePaneBlurWidth();
@@ -213,9 +213,8 @@ public sealed partial class MainWindow : Window
 		titleBar.ButtonHoverBackgroundColor = Windows.UI.Color.FromArgb(0x1A, color.R, color.G, color.B);
 		titleBar.ButtonPressedBackgroundColor = Windows.UI.Color.FromArgb(0x33, color.R, color.G, color.B);
 		AppTitleTextBlock.Foreground = new SolidColorBrush(color);
-		RootGrid.Background = _settingsManager.AcrylicEnabled ? _transparentChromeBrush : ContentBackground;
+		RootGrid.Background = _settingsManager.AcrylicEnabled ? _transparentChromeBrush : OpaqueWindowBackground;
 		ApplySearchResultsBackground();
-		if (GameBackgroundLayer.Visibility != Visibility.Visible) ContentFrame.Background = ContentBackground;
 	}
 
 	private void SetWindowIcon()
@@ -647,9 +646,6 @@ public sealed partial class MainWindow : Window
 			ShowGameBackground(GameArtwork.SelectBackgroundUrl(_libraryManager.GetGameInfo(appName)));
 		else
 			HideGameBackground();
-
-		if (e.SourcePageType == typeof(SettingsPage))
-			ContentFrame.Background = ContentBackground;
 	}
 
 	private void ContentFrame_Navigated(object sender, NavigationEventArgs e)
@@ -695,7 +691,7 @@ public sealed partial class MainWindow : Window
 		UpdatePaneBlurWidth();
 
 		// Let the artwork run behind the page and the title bar above it.
-		ContentFrame.Background = _transparentChromeBrush;
+		ContentSurface.Visibility = Visibility.Collapsed;
 	}
 
 	/// <summary>
@@ -715,13 +711,14 @@ public sealed partial class MainWindow : Window
 		PaneBlur.Width = inset;
 	}
 
+	// With acrylic off the window has no backdrop, so this is the base the content layer stands out from.
+	private Brush OpaqueWindowBackground => new SolidColorBrush(RootGrid.ActualTheme == ElementTheme.Dark
+		? Windows.UI.Color.FromArgb(0xFF, 28, 28, 28)
+		: Windows.UI.Color.FromArgb(0xFF, 243, 243, 243));
+
 	/// <summary>
 	/// The pane and search pill blurs follow the acrylic setting; with it off they stay see-through.
 	/// </summary>
-	private Brush ContentBackground => new SolidColorBrush(RootGrid.ActualTheme == ElementTheme.Dark
-		? Windows.UI.Color.FromArgb(_settingsManager.AcrylicEnabled ? (byte)0xA6 : (byte)0xFF, 28, 28, 28)
-		: Windows.UI.Color.FromArgb(_settingsManager.AcrylicEnabled ? (byte)0xE6 : (byte)0xFF, 243, 243, 243));
-
 	private void ApplyAcrylicBlurs()
 	{
 		var visibility = _settingsManager.AcrylicEnabled ? Visibility.Visible : Visibility.Collapsed;
@@ -737,7 +734,7 @@ public sealed partial class MainWindow : Window
 		GlobalSearchBox.RequestedTheme = ElementTheme.Default;
 		UpdateThemeChrome();
 
-		ContentFrame.Background = ContentBackground;
+		ContentSurface.Visibility = Visibility.Visible;
 	}
 
 	private static ImageSource? CreateGameBackgroundImage(string? imageUrl)
@@ -1396,8 +1393,6 @@ public sealed partial class MainWindow : Window
 		ApplyWindowBackdrop();
 		ApplyAcrylicBlurs();
 		UpdateThemeChrome();
-		if (GameBackgroundLayer.Visibility != Visibility.Visible)
-			ContentFrame.Background = ContentBackground;
 	}
 
 	/// <summary>
