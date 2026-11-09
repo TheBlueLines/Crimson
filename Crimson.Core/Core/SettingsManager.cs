@@ -34,7 +34,6 @@ public class SettingsManager
 
 	public event Action<bool>? AcrylicEnabledChanged;
 	public event Action<int>? ThemeChanged;
-	public event Action<CloseBehavior>? CloseBehaviorChanged;
 
 	// 0 follows Windows, 1 is light and 2 is dark. Unknown saved values fall back to System.
 	public int Theme
@@ -81,7 +80,6 @@ public class SettingsManager
 		{
 			if (!Enum.IsDefined(value) || Settings.CloseBehavior == value) return;
 			Settings.CloseBehavior = value;
-			CloseBehaviorChanged?.Invoke(value);
 		}
 	}
 

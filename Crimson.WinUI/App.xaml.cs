@@ -16,6 +16,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
 using Polly;
@@ -39,7 +40,7 @@ namespace Crimson
 			get;
 		}
 		/// <summary>
-		/// Whether closing the main window should only hide it, leaving the app running.
+		/// Whether closing the main window should leave the app running.
 		/// </summary>
 		public static bool HandleClosedEvents =>
 			!_exitRequested && GetService<SettingsManager>().CloseBehavior != CloseBehavior.Exit;
@@ -349,6 +350,10 @@ namespace Crimson
 
 		internal void ShowMainWindow()
 		{
+			// Opening Crimson again has to bring back a window that was minimized to the taskbar.
+			if (m_window?.AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized } presenter)
+				presenter.Restore();
+
 			m_window?.Show();
 			m_window?.Activate();
 			m_window?.SetWindowShown(true);
@@ -374,7 +379,11 @@ namespace Crimson
 			if (HandleClosedEvents)
 			{
 				args.Handled = true;
-				HideMainWindow();
+				if (GetService<SettingsManager>().CloseBehavior == CloseBehavior.MinimizeToTaskbar &&
+					m_window?.AppWindow.Presenter is OverlappedPresenter presenter)
+					presenter.Minimize();
+				else
+					HideMainWindow();
 				return;
 			}
 

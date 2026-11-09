@@ -70,7 +70,7 @@
 					<ComboBox AutomationProperties.Name="When Crimson is closed" SelectedIndex="{x:Bind ViewModel.CloseBehaviorIndex, Mode=TwoWay}">
 						<x:String>Close entirely</x:String>
 						<x:String>Minimize to system tray</x:String>
-						<x:String>Run in the background</x:String>
+						<x:String>Minimize to taskbar</x:String>
 					</ComboBox>
 				</toolkit:SettingsCard>
 

@@ -58,11 +58,11 @@ public sealed class SettingsViewModelTests : IDisposable
 	public void CloseBehaviorIgnoresUnknownValues()
 	{
 		var settings = CreateSettings();
-		settings.CloseBehavior = CloseBehavior.RunInBackground;
+		settings.CloseBehavior = CloseBehavior.MinimizeToTaskbar;
 
 		settings.CloseBehavior = (CloseBehavior)99;
 
-		Assert.Equal(CloseBehavior.RunInBackground, settings.CloseBehavior);
+		Assert.Equal(CloseBehavior.MinimizeToTaskbar, settings.CloseBehavior);
 	}
 
 	[Theory]

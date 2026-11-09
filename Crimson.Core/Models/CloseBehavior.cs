@@ -12,6 +12,6 @@ public enum CloseBehavior
 	/// <summary>Hides the window and keeps running. The tray icon only appears while hidden.</summary>
 	MinimizeToTray = 1,
 
-	/// <summary>Hides the window and keeps running. The tray icon is always shown.</summary>
-	RunInBackground = 2
+	/// <summary>Minimizes the window to its taskbar button and keeps running.</summary>
+	MinimizeToTaskbar = 2
 }
