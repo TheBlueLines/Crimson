@@ -80,6 +80,64 @@ public sealed class DownloadManagerTests
 	}
 
 	[Fact]
+	public async Task DownloadFileWithFallback_MovesOnWhenResponseBodyTrickles()
+	{
+		var trickle = Enumerable.Repeat(TimeSpan.FromMilliseconds(40), 50).ToArray();
+		using var client = new HttpClient(new StubHttpMessageHandler((request, _) =>
+			Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+			{
+				Content = request.RequestUri!.Host == "first.epicgamescdn.com"
+					? new StreamContent(new ScriptedReadStream(trickle))
+					: new ByteArrayContent(new byte[] { 1, 2, 3, 4 })
+			})));
+		using var logger = new LoggerConfiguration().CreateLogger();
+		var manager = new DownloadManager(
+			logger, client, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(200));
+		await manager.InitializeMirrors(["https://first.epicgamescdn.com", "https://second.epicgamescdn.com"]);
+		var destination = CreateDestination();
+
+		try
+		{
+			var success = await manager.DownloadFileWithFallback("one.chunk", destination);
+
+			Assert.True(success);
+			Assert.Equal(4, new FileInfo(destination).Length);
+		}
+		finally
+		{
+			DeleteDestinationDirectory(destination);
+		}
+	}
+
+	[Fact]
+	public async Task DownloadFileWithFallback_AllowsThroughputAboveTheProgressMinimum()
+	{
+		var delay = TimeSpan.FromMilliseconds(150);
+		using var client = new HttpClient(new StubHttpMessageHandler((_, _) =>
+			Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+			{
+				Content = new StreamContent(new ScriptedReadStream([delay, delay, delay], bytesPerRead: 70_000))
+			})));
+		using var logger = new LoggerConfiguration().CreateLogger();
+		var manager = new DownloadManager(
+			logger, client, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(100));
+		await manager.InitializeMirrors(["https://first.epicgamescdn.com"]);
+		var destination = CreateDestination();
+
+		try
+		{
+			var success = await manager.DownloadFileWithFallback("one.chunk", destination, maxRetries: 1);
+
+			Assert.True(success);
+			Assert.Equal(210_000, new FileInfo(destination).Length);
+		}
+		finally
+		{
+			DeleteDestinationDirectory(destination);
+		}
+	}
+
+	[Fact]
 	public async Task DownloadFileWithFallback_AllowsSlowBodyThatKeepsProgressing()
 	{
 		var delay = TimeSpan.FromMilliseconds(300);
@@ -361,8 +419,8 @@ public sealed class DownloadManagerTests
 			Directory.Delete(directory, recursive: true);
 	}
 
-	/// <summary>Returns one byte after each scripted delay, then ends the stream.</summary>
-	private sealed class ScriptedReadStream(IReadOnlyList<TimeSpan> delays) : Stream
+	/// <summary>Returns <paramref name="bytesPerRead"/> bytes after each scripted delay, then ends the stream.</summary>
+	private sealed class ScriptedReadStream(IReadOnlyList<TimeSpan> delays, int bytesPerRead = 1) : Stream
 	{
 		private int _next;
 
@@ -371,8 +429,9 @@ public sealed class DownloadManagerTests
 			if (_next >= delays.Count)
 				return 0;
 			await Task.Delay(delays[_next++], cancellationToken);
-			buffer.Span[0] = 1;
-			return 1;
+			var count = Math.Min(bytesPerRead, buffer.Length);
+			buffer.Span[..count].Fill(1);
+			return count;
 		}
 
 		public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>

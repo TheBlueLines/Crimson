@@ -19,15 +19,23 @@ public class DownloadManager
 	private readonly HttpClient _httpClient;
 	private readonly SemaphoreSlim _statLock = new(1);
 	private readonly TimeSpan _stallTimeout;
+	private readonly TimeSpan _progressWindow;
 
 	private const int ReadBufferSize = 81920;
-	private static readonly TimeSpan DefaultStallTimeout = TimeSpan.FromSeconds(15);
+	private const long MinBytesPerProgressWindow = 64 * 1024;
+	private static readonly TimeSpan DefaultStallTimeout = TimeSpan.FromSeconds(8);
+	private static readonly TimeSpan DefaultProgressWindow = TimeSpan.FromSeconds(10);
 
-	public DownloadManager(ILogger log, HttpClient httpClient, TimeSpan? stallTimeout = null)
+	public DownloadManager(
+		ILogger log,
+		HttpClient httpClient,
+		TimeSpan? stallTimeout = null,
+		TimeSpan? progressWindow = null)
 	{
 		_log = log;
 		_httpClient = httpClient;
 		_stallTimeout = stallTimeout ?? DefaultStallTimeout;
+		_progressWindow = progressWindow ?? DefaultProgressWindow;
 	}
 
 	public async Task InitializeMirrors(List<string> baseUrls)
@@ -223,8 +231,7 @@ public class DownloadManager
 		catch (OperationCanceledException) when (stallGuard.IsCancellationRequested)
 		{
 			_log.Warning(
-				"MeasureDownloadSpeed: No data for {Seconds}s from {Url}, retrying",
-				_stallTimeout.TotalSeconds,
+				"MeasureDownloadSpeed: Connection stalled for {Url}, retrying",
 				SensitiveDataRedactor.UriWithoutQuery(url));
 			return false;
 		}
@@ -251,8 +258,9 @@ public class DownloadManager
 	}
 
 	/// <summary>
-	/// Copies the response body, giving up when a single read waits longer than the stall timeout.
-	/// The limit is per read so slow but steady connections can take as long as they need.
+	/// Copies the response body, giving up when a read waits longer than the stall timeout or a
+	/// progress window delivers almost nothing. There is no limit on the whole body, so slow but
+	/// steady connections can take as long as they need.
 	/// </summary>
 	private async Task CopyWithStallGuardAsync(
 		Stream source,
@@ -261,6 +269,8 @@ public class DownloadManager
 		CancellationToken cancellationToken)
 	{
 		var buffer = ArrayPool<byte>.Shared.Rent(ReadBufferSize);
+		var windowStart = Stopwatch.GetTimestamp();
+		long windowBytes = 0;
 		try
 		{
 			while (true)
@@ -271,6 +281,19 @@ public class DownloadManager
 				stallGuard.CancelAfter(Timeout.InfiniteTimeSpan);
 				if (read == 0)
 					return;
+
+				windowBytes += read;
+				if (Stopwatch.GetElapsedTime(windowStart) >= _progressWindow)
+				{
+					if (windowBytes < MinBytesPerProgressWindow)
+					{
+						stallGuard.Cancel();
+						stallGuard.Token.ThrowIfCancellationRequested();
+					}
+					windowStart = Stopwatch.GetTimestamp();
+					windowBytes = 0;
+				}
+
 				await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
 			}
 		}

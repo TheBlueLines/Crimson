@@ -235,7 +235,9 @@ public partial class InstallManager
 
 			_downloadQueue.CompleteAdding();
 
-			await Task.WhenAll(_downloadTasks);
+			var downloads = Task.WhenAll(_downloadTasks);
+			_ = ReportSpeedWhileDownloadingAsync(CurrentInstall, downloads);
+			await downloads;
 			_ioQueue.CompleteAdding();
 			await Task.WhenAll(_installTasks);
 
@@ -1588,11 +1590,30 @@ public partial class InstallManager
 		lock (_installItemLock)
 		{
 			CurrentInstall.DownloadedSizeMiB += downloadedSize / 1024.0 / 1024.0;
-			CurrentInstall.DownloadSpeedRawMiB = _installStopWatch.IsRunning && _installStopWatch.Elapsed.TotalSeconds > 0
-				? Math.Round(Math.Max(0, CurrentInstall.DownloadedSizeMiB - _sessionStartDownloadedMiB) / _installStopWatch.Elapsed.TotalSeconds, 2)
-				: 0;
-
+			RefreshDownloadSpeed(CurrentInstall);
 			UpdateProgressIfNeeded();
+		}
+	}
+
+	private void RefreshDownloadSpeed(InstallItem install) =>
+		install.DownloadSpeedRawMiB = _installStopWatch.IsRunning && _installStopWatch.Elapsed.TotalSeconds > 0
+			? Math.Round(Math.Max(0, install.DownloadedSizeMiB - _sessionStartDownloadedMiB) / _installStopWatch.Elapsed.TotalSeconds, 2)
+			: 0;
+
+	/// <summary>
+	/// Chunks only report when they finish, so without this the speed freezes during a stall.
+	/// </summary>
+	private async Task ReportSpeedWhileDownloadingAsync(InstallItem install, Task downloads)
+	{
+		while (await Task.WhenAny(downloads, Task.Delay(_progressUpdateIntervalInMS)) != downloads)
+		{
+			lock (_installItemLock)
+			{
+				if (!ReferenceEquals(CurrentInstall, install) || install.Status != ActionStatus.Processing)
+					continue;
+				RefreshDownloadSpeed(install);
+				UpdateProgressIfNeeded();
+			}
 		}
 	}
 

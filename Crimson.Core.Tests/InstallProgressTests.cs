@@ -54,6 +54,33 @@ public sealed class InstallProgressTests : IDisposable
 		Assert.True(File.Exists(Path.Combine(_root, "empty.txt")));
 	}
 
+	[Fact]
+	public async Task SpeedKeepsFallingWhileNoChunkCompletes()
+	{
+		var install = new InstallItem("test", ActionType.Install, _root)
+		{
+			Status = ActionStatus.Processing,
+			DownloadedSizeMiB = 10,
+			DownloadSpeedRawMiB = 999
+		};
+		SetCurrentInstall(install);
+		((System.Diagnostics.Stopwatch)typeof(InstallManager)
+			.GetField("_installStopWatch", BindingFlags.Instance | BindingFlags.NonPublic)!
+			.GetValue(_installer)!).Start();
+		var reported = new TaskCompletionSource();
+		_installer.InstallProgressUpdate += _ => reported.TrySetResult();
+		var downloads = new TaskCompletionSource();
+
+		var reporting = (Task)typeof(InstallManager)
+			.GetMethod("ReportSpeedWhileDownloadingAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+			.Invoke(_installer, [install, downloads.Task])!;
+		await reported.Task.WaitAsync(TimeSpan.FromSeconds(10));
+		downloads.SetResult();
+		await reporting.WaitAsync(TimeSpan.FromSeconds(10));
+
+		Assert.InRange(install.DownloadSpeedRawMiB, 0.01, 998);
+	}
+
 	private void Invoke(string methodName, params object[] arguments) =>
 		typeof(InstallManager)
 			.GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)!
