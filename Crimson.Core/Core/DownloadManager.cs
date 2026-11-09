@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -17,12 +18,16 @@ public class DownloadManager
 	private readonly ILogger _log;
 	private readonly HttpClient _httpClient;
 	private readonly SemaphoreSlim _statLock = new(1);
+	private readonly TimeSpan _stallTimeout;
 
+	private const int ReadBufferSize = 81920;
+	private static readonly TimeSpan DefaultStallTimeout = TimeSpan.FromSeconds(15);
 
-	public DownloadManager(ILogger log, HttpClient httpClient)
+	public DownloadManager(ILogger log, HttpClient httpClient, TimeSpan? stallTimeout = null)
 	{
 		_log = log;
 		_httpClient = httpClient;
+		_stallTimeout = stallTimeout ?? DefaultStallTimeout;
 	}
 
 	public async Task InitializeMirrors(List<string> baseUrls)
@@ -146,11 +151,15 @@ public class DownloadManager
 	{
 		var stopwatch = Stopwatch.StartNew();
 		var partialPath = destinationPath + ".partial";
+		// HttpClient.Timeout stops applying once the headers arrive, so without this a connection
+		// that goes silent mid-body holds its chunk, and the whole install, indefinitely.
+		using var stallGuard = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 		try
 		{
 			var uri = EpicEndpointPolicy.RequireContentUri(url);
+			stallGuard.CancelAfter(_stallTimeout);
 			using var response = await _httpClient.GetAsync(
-				uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+				uri, HttpCompletionOption.ResponseHeadersRead, stallGuard.Token);
 			if (!response.IsSuccessStatusCode)
 			{
 				_log.Warning(
@@ -164,12 +173,12 @@ public class DownloadManager
 			if (!string.IsNullOrEmpty(directoryPath))
 				Directory.CreateDirectory(directoryPath);
 
-			await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+			await using var stream = await response.Content.ReadAsStreamAsync(stallGuard.Token);
 			await using (var fileStream = new FileStream(
 				partialPath, FileMode.Create, FileAccess.Write, FileShare.None,
 				bufferSize: 1024 * 1024, useAsync: true))
 			{
-				await stream.CopyToAsync(fileStream, 1024 * 1024, cancellationToken);
+				await CopyWithStallGuardAsync(stream, fileStream, stallGuard, cancellationToken);
 				await fileStream.FlushAsync(cancellationToken);
 			}
 
@@ -211,6 +220,14 @@ public class DownloadManager
 		{
 			throw;
 		}
+		catch (OperationCanceledException) when (stallGuard.IsCancellationRequested)
+		{
+			_log.Warning(
+				"MeasureDownloadSpeed: No data for {Seconds}s from {Url}, retrying",
+				_stallTimeout.TotalSeconds,
+				SensitiveDataRedactor.UriWithoutQuery(url));
+			return false;
+		}
 		catch (Exception ex)
 		{
 			stopwatch.Stop();
@@ -230,6 +247,36 @@ public class DownloadManager
 			{
 				_log.Warning(ex, "MeasureDownloadSpeed: Failed to remove partial download {Path}", partialPath);
 			}
+		}
+	}
+
+	/// <summary>
+	/// Copies the response body, giving up when a single read waits longer than the stall timeout.
+	/// The limit is per read so slow but steady connections can take as long as they need.
+	/// </summary>
+	private async Task CopyWithStallGuardAsync(
+		Stream source,
+		Stream destination,
+		CancellationTokenSource stallGuard,
+		CancellationToken cancellationToken)
+	{
+		var buffer = ArrayPool<byte>.Shared.Rent(ReadBufferSize);
+		try
+		{
+			while (true)
+			{
+				stallGuard.CancelAfter(_stallTimeout);
+				var read = await source.ReadAsync(buffer, stallGuard.Token);
+				// Disk time must not count against the network.
+				stallGuard.CancelAfter(Timeout.InfiniteTimeSpan);
+				if (read == 0)
+					return;
+				await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+			}
+		}
+		finally
+		{
+			ArrayPool<byte>.Shared.Return(buffer);
 		}
 	}
 
