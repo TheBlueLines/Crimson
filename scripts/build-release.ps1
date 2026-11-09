@@ -140,9 +140,12 @@ function Publish-PortableAsset {
   $portableExe = Join-Path $staging 'unpackaged\Crimson.exe'
   if (-not (Test-Path $portableExe)) { throw 'Portable publish did not produce Crimson.exe.' }
   Assert-LicenseFile (Join-Path $staging 'unpackaged')
-  Compress-Archive `
-    -Path (Join-Path $staging 'unpackaged\*') `
-    -DestinationPath (Join-Path $dist "Crimson-$Version-win-x64.zip")
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [IO.Compression.ZipFile]::CreateFromDirectory(
+    (Join-Path $staging 'unpackaged'),
+    (Join-Path $dist "Crimson-$Version-win-x64.zip"),
+    [IO.Compression.CompressionLevel]::SmallestSize,
+    $false)
 }
 
 function Read-SigningPfx {

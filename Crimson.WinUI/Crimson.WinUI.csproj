@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<OutputType>WinExe</OutputType>
 		<TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
@@ -15,6 +15,10 @@
 		<UseRidGraph>true</UseRidGraph>
 		<Nullable>enable</Nullable>
 		<DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+		<!-- Trimming would otherwise turn off the reflection-based JSON that Crimson's models rely on. -->
+		<JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+		<!-- Trimming turns this off by default, and shortcut creation and taskbar progress use [ComImport]. -->
+		<BuiltInComInteropSupport>true</BuiltInComInteropSupport>
 
 		<!--
 		  Packaging is opt-in so the default build stays unpackaged and F5 keeps working.
@@ -57,14 +61,25 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\Crimson.Core\Crimson.Core.csproj" />
+		<TrimmerRootDescriptor Include="ILLink.Descriptors.xml" />
 	</ItemGroup>
+
+	<!-- Only a debugger or dump tool loads these; the app never does. -->
+	<Target Name="RemoveDebuggerOnlyRuntimeFiles" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(Configuration)' != 'Debug'">
+		<ItemGroup>
+			<ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Filename)', '^(createdump|mscordaccore.*|mscordbi|Microsoft\.DiaSymReader\.Native\..*)$'))" />
+		</ItemGroup>
+	</Target>
 
 	<ItemGroup>
 		<Content Include="..\LICENSE.txt" Link="LICENSE.txt">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
-		<Content Include="Assets\Crimson.ico" />
+		<Content Include="Assets\Crimson.ico">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
 		<Content Include="Assets\SplashScreen.scale-200.png" />
 		<Content Include="Assets\LockScreenLogo.scale-200.png" />
 		<Content Include="Assets\Square150x150Logo.scale-200.png" />
@@ -83,15 +98,21 @@
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
 		<PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
 		<PackageReference Include="CommunityToolkit.WinUI.Converters" Version="8.2.251219" />
-		<PackageReference Include="Google.Protobuf" Version="3.29.2" />
 		<PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
-		<PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
-		<PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.9.0" />
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
+		<PackageReference Include="Microsoft.Extensions.Http" Version="10.0.11" />
 		<PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
+		<!--
+		  Crimson uses none of these. With the Runtime package absent, a self-contained build copies
+		  only the referenced components instead of the whole framework, which includes about 45 MB of AI runtimes.
+		-->
+		<PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="1.8.260804001" ExcludeAssets="all" />
+		<PackageReference Include="Microsoft.WindowsAppSDK.AI" Version="1.8.79" ExcludeAssets="all" />
+		<PackageReference Include="Microsoft.WindowsAppSDK.ML" Version="1.8.2197" ExcludeAssets="all" />
+		<PackageReference Include="Microsoft.WindowsAppSDK.Widgets" Version="1.8.251231004" ExcludeAssets="all" />
 		<PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.8249" />
 		<PackageReference Include="Serilog" Version="4.4.0" />
 		<PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
-		<PackageReference Include="Serilog.Formatting.Compact" Version="3.0.0" />
 		<PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
 		<PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.11" />
 		<Manifest Include="$(ApplicationManifest)" />

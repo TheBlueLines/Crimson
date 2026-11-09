@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -352,10 +352,4 @@ public enum AuthenticationStatus
 public class AuthStatusChangedEventArgs(AuthenticationStatus newStatus) : EventArgs
 {
 	public AuthenticationStatus NewStatus { get; } = newStatus;
-}
-
-public class EpicLoginResponse
-{
-	[JsonPropertyName("type")] public string Type { get; set; }
-	[JsonPropertyName("code")] public string Code { get; set; }
 }

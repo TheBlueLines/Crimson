@@ -80,9 +80,10 @@ internal sealed class CloudSaveFilter
 			  FileSystemName.MatchesSimpleExpression(pattern, path, ignoreCase: true));
 }
 
-internal sealed record CloudSaveLocation(string Folder, string Template, CloudSaveFilter Filter)
+internal sealed partial record CloudSaveLocation(string Folder, string Template, CloudSaveFilter Filter)
 {
-	private static readonly Regex Token = new(@"\{[^{}]*\}", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+	[GeneratedRegex(@"\{[^{}]*\}", RegexOptions.CultureInvariant)]
+	private static partial Regex Token();
 
 	/// <summary>
 	/// Resolves a game's save location, or returns null when it has none Crimson can safely manage.
@@ -118,7 +119,7 @@ internal sealed record CloudSaveLocation(string Folder, string Template, CloudSa
 		var path = root;
 		foreach (var segment in segments.Skip(1))
 		{
-			var expanded = Token.Replace(segment, match =>
+			var expanded = Token().Replace(segment, match =>
 				match.Value.Equals("{epicid}", StringComparison.OrdinalIgnoreCase) ? accountId : "\0");
 			if (expanded is "." or ".." || expanded.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
 				expanded.Contains(':'))

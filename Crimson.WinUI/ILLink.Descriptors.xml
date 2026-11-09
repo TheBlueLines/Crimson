@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Kept out of trimming because C#/WinRT finds these members by reflection at run time, which the
+  trimmer cannot see. Removing them fails only when a page first hands such an object to WinUI:
+  Downloads, for one, threw a NullReferenceException from GetAbiToProjectionVftblPtr.
+-->
+<linker>
+	<assembly fullname="WinRT.Runtime" preserve="all" />
+	<assembly fullname="Microsoft.WinUI" preserve="all" />
+	<assembly fullname="Microsoft.InteractiveExperiences.Projection" preserve="all" />
+	<assembly fullname="Microsoft.Web.WebView2.Core.Projection" preserve="all" />
+	<assembly fullname="Microsoft.Windows.SDK.NET">
+		<type fullname="ABI.Windows.Foundation.*" preserve="all" />
+	</assembly>
+</linker>

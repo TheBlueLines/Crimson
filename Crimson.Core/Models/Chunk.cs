@@ -2,10 +2,10 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.IO.Compression;
 using System.Numerics;
 using System.Security.Cryptography;
 using Crimson.Utils;
-using Ionic.Zlib;
 
 namespace Crimson.Models;
 
@@ -162,7 +162,7 @@ public sealed class Chunk
 	private static byte[] Decompress(byte[] data, int expectedSize)
 	{
 		using var compressed = new MemoryStream(data, writable: false);
-		using var zlib = new ZlibStream(compressed, CompressionMode.Decompress);
+		using var zlib = new ZLibStream(compressed, CompressionMode.Decompress);
 		var output = new byte[expectedSize];
 		try
 		{
@@ -191,10 +191,6 @@ public sealed class Chunk
 				throw new InvalidDataException("Chunk decompressed size does not match its declaration.");
 
 			return output;
-		}
-		catch (ZlibException exception)
-		{
-			throw new InvalidDataException("Chunk compressed payload is invalid.", exception);
 		}
 		catch (OverflowException exception)
 		{

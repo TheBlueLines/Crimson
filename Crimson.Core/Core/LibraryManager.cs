@@ -16,11 +16,10 @@ using Serilog;
 
 namespace Crimson.Core;
 
-public class LibraryManager
+public partial class LibraryManager
 {
-	private static readonly Regex UnrealEngineBuildVersionPattern = new(
-		@".*UE.*Windows",
-		RegexOptions.Compiled | RegexOptions.CultureInvariant);
+	[GeneratedRegex(@".*UE.*Windows", RegexOptions.CultureInvariant)]
+	private static partial Regex UnrealEngineBuildVersionPattern();
 
 	private readonly ILogger _log;
 	private readonly IStoreRepository _storeRepository;
@@ -551,7 +550,7 @@ public class LibraryManager
 
 	private static bool IsUnrealEngineAsset(Asset asset) =>
 		asset.Namespace.Contains("ue", StringComparison.Ordinal) ||
-		UnrealEngineBuildVersionPattern.IsMatch(asset.BuildVersion);
+		UnrealEngineBuildVersionPattern().IsMatch(asset.BuildVersion);
 
 	internal static IReadOnlyList<Game> SelectOwnedGames(
 		IEnumerable<Asset> assets,

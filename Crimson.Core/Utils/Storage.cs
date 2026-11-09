@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -10,6 +10,12 @@ using Serilog;
 
 namespace Crimson.Utils
 {
+	public sealed class MetadataSnapshot
+	{
+		internal Dictionary<string, Game> Games { get; } = new();
+		internal List<(string File, Exception Error)> Failures { get; } = [];
+	}
+
 	public class Storage
 	{
 		private readonly string AppDataPath;
@@ -30,6 +36,7 @@ namespace Crimson.Utils
 		private Dictionary<string, LocalAppState> _localAppStateDictionary = new();
 		private ILogger _logger;
 		private readonly IFileSystemVolumeResolver _volumeResolver;
+		private readonly Task<MetadataSnapshot>? _metadataPreload;
 
 		public Dictionary<string, Game> GameMetaDataDictionary => _gameMetaDataDictionary;
 		public Dictionary<string, LocalAppState> LocalAppStateDictionary => _localAppStateDictionary;
@@ -40,7 +47,8 @@ namespace Crimson.Utils
 			ILogger logger,
 			string appDataPath,
 			string defaultInstallPath,
-			IFileSystemVolumeResolver? volumeResolver = null)
+			IFileSystemVolumeResolver? volumeResolver = null,
+			Task<MetadataSnapshot>? metadataPreload = null)
 		{
 			ArgumentNullException.ThrowIfNull(logger);
 			ArgumentException.ThrowIfNullOrWhiteSpace(appDataPath);
@@ -48,6 +56,7 @@ namespace Crimson.Utils
 
 			_logger = logger;
 			_volumeResolver = volumeResolver ?? new FileSystemVolumeResolver();
+			_metadataPreload = metadataPreload;
 			AppDataPath = Path.GetFullPath(appDataPath);
 			DefaultInstallDirectory = Path.GetFullPath(defaultInstallPath);
 			UserDataFile = ResolveAppDataPath("user.json");
@@ -80,30 +89,48 @@ namespace Crimson.Utils
 
 		private Dictionary<string, Game> LoadMetadata()
 		{
-			var metadata = new Dictionary<string, Game>();
+			var snapshot = _metadataPreload?.GetAwaiter().GetResult() ?? ReadMetadata(MetaDataDirectory);
+			foreach (var (file, error) in snapshot.Failures)
+				_logger.Error(error, "Error processing metadata file {File}", file);
+			return snapshot.Games;
+		}
+
+		/// <summary>
+		/// Reads every cached game record. Safe to call before a Storage exists, so startup can do
+		/// this work alongside WinUI's own initialization.
+		/// </summary>
+		public static MetadataSnapshot ReadMetadata(string directory)
+		{
+			var snapshot = new MetadataSnapshot();
+			if (!Directory.Exists(directory))
+				return snapshot;
+
 			Parallel.ForEach(
-				Directory.EnumerateFiles(MetaDataDirectory, "*.json"),
+				Directory.EnumerateFiles(directory, "*.json"),
 				new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
 				file =>
 				{
 					try
 					{
 						var json = File.ReadAllText(file);
-						var game = JsonSerializer.Deserialize<Game>(json);
+						var game = JsonSerializer.Deserialize(json, StorageJsonContext.Default.Game);
 						if (game is null)
 							throw new InvalidDataException("Metadata file did not contain a game record.");
 
-						lock (metadata)
+						lock (snapshot)
 						{
-							metadata.Add(game.AppName, game);
+							snapshot.Games.Add(game.AppName, game);
 						}
 					}
 					catch (Exception ex)
 					{
-						_logger.Error(ex, "Error processing metadata file {File}", file);
+						lock (snapshot)
+						{
+							snapshot.Failures.Add((file, ex));
+						}
 					}
 				});
-			return metadata;
+			return snapshot;
 		}
 
 		private Dictionary<string, LocalAppState> LoadLocalAppStates()
@@ -115,7 +142,7 @@ namespace Crimson.Utils
 			if (string.IsNullOrEmpty(json))
 				return [];
 
-			return JsonSerializer.Deserialize<Dictionary<string, LocalAppState>>(json) ?? [];
+			return JsonSerializer.Deserialize(json, StorageJsonContext.Default.DictionaryStringLocalAppState) ?? [];
 		}
 
 		public Task<UserData> GetUserData()
@@ -154,35 +181,6 @@ namespace Crimson.Utils
 
 				_gameMetaDataDictionary.Clear();
 			}
-			return Task.CompletedTask;
-		}
-
-		public async Task<IEnumerable<Asset>> GetGameAssetsData()
-		{
-			try
-			{
-				if (!File.Exists(GameAssetsFile))
-				{
-					await SaveGameAssetsData(null);
-					return null;
-				}
-
-				await using var fileStream = File.Open(GameAssetsFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-				using var streamReader = new StreamReader(fileStream);
-				var jsonString = await streamReader.ReadToEndAsync();
-				streamReader.Close();
-				return JsonSerializer.Deserialize<IEnumerable<Asset>>(jsonString);
-			}
-			catch (Exception ex)
-			{
-				_logger.Error(ex, "Failed to load game assets");
-				return null;
-			}
-		}
-
-		public Task SaveGameAssetsData(IEnumerable<Asset> data)
-		{
-			SaveGameAssets(data);
 			return Task.CompletedTask;
 		}
 
@@ -240,15 +238,6 @@ namespace Crimson.Utils
 
 			// Overwrite existing entry so in-memory state stays current
 			_gameMetaDataDictionary[game.AppName] = game;
-		}
-
-		public void UpdateLocalAppState(Dictionary<string, LocalAppState> installedGamesDict)
-		{
-			_localAppStateDictionary = installedGamesDict;
-
-			var jsonString = JsonSerializer.Serialize(_localAppStateDictionary);
-
-			File.WriteAllText(LocalAppStateFile, jsonString);
 		}
 
 		public void AddToLocalAppState(string appName, LocalAppState appState)

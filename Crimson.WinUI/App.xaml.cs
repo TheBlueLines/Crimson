@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -13,13 +13,10 @@ using Crimson.ViewModels;
 using Crimson.Views;
 using H.NotifyIcon;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Http.Resilience;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
-using Polly;
 using Serilog;
 using Windows.ApplicationModel.Activation;
 
@@ -30,15 +27,8 @@ namespace Crimson
 	/// </summary>
 	public partial class App : Application
 	{
-		// The .NET Generic Host provides dependency injection, configuration, logging, and other services.
-		// https://docs.microsoft.com/dotnet/core/extensions/generic-host
-		// https://docs.microsoft.com/dotnet/core/extensions/dependency-injection
-		// https://docs.microsoft.com/dotnet/core/extensions/configuration
-		// https://docs.microsoft.com/dotnet/core/extensions/logging
-		public IHost Host
-		{
-			get;
-		}
+		public IServiceProvider Services { get; }
+
 		/// <summary>
 		/// Whether closing the main window should leave the app running.
 		/// </summary>
@@ -46,6 +36,7 @@ namespace Crimson
 			!_exitRequested && GetService<SettingsManager>().CloseBehavior != CloseBehavior.Exit;
 		private static bool _exitRequested;
 		internal static AppActivationArguments? InitialActivationArguments { get; set; }
+		internal static Task<MetadataSnapshot>? MetadataPreload { get; set; }
 
 		private static readonly object ActivationLock = new();
 		private static readonly Queue<AppActivationArguments> EarlyActivations = new();
@@ -70,128 +61,123 @@ namespace Crimson
 			}
 			this.UnhandledException += App_UnhandledException;
 
-			Host = Microsoft.Extensions.Hosting.Host.
-			CreateDefaultBuilder().
-			UseContentRoot(AppContext.BaseDirectory).
-			ConfigureServices((context, services) =>
-			{
-				services.AddSingleton<IUiDispatcher>(new WindowsUiDispatcher(_dispatcherQueue));
-				services.AddSingleton<IFolderLauncher, WindowsFolderLauncher>();
-				services.AddSingleton<IStartupRegistration, WindowsStartupRegistration>();
-				services.AddSingleton<ILogger>(provider =>
-				{
-					var logDirectory = Path.Combine(GetAppDataPath(), "logs");
-					_ = Directory.CreateDirectory(logDirectory);
-					var logFilePath = Path.Combine(logDirectory, $"{DateTime.Now:yyyy-MM-dd}.txt");
-
-					var logger = new LoggerConfiguration()
-						.MinimumLevel.Information()
-						.WriteTo.File(
-							logFilePath,
-							rollingInterval: RollingInterval.Month,
-							rollOnFileSizeLimit: true,
-							retainedFileCountLimit: 30,
-							outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}"
-						)
-						.CreateLogger();
-
-					Log.Logger = logger;
-					return logger;
-				});
-				services.AddHttpClient("EpicOAuth", ConfigureEpicClient)
-					.ConfigurePrimaryHttpMessageHandler(CreateSecureHttpHandler);
-				services.AddHttpClient("EpicApi", ConfigureEpicClient)
-					.ConfigurePrimaryHttpMessageHandler(CreateSecureHttpHandler)
-					.AddResilienceHandler(
-						"CustomPipeline",
-						static builder =>
-						{
-							// See: https://www.pollydocs.org/strategies/retry.html
-							builder.AddRetry(new HttpRetryStrategyOptions
-							{
-								BackoffType = DelayBackoffType.Exponential,
-								MaxRetryAttempts = 5,
-								UseJitter = true
-							});
-
-							// See: https://www.pollydocs.org/strategies/timeout.html
-							builder.AddTimeout(TimeSpan.FromSeconds(5));
-						});
-				services.AddHttpClient("EpicContent", ConfigureEpicClient)
-					.ConfigurePrimaryHttpMessageHandler(CreateSecureHttpHandler);
-				services.AddHttpClient("EpicStore", ConfigureEpicStoreClient)
-					.ConfigurePrimaryHttpMessageHandler(CreateSecureHttpHandler);
-				services.AddHttpClient("Images", client => client.Timeout = TimeSpan.FromSeconds(30))
-					.ConfigurePrimaryHttpMessageHandler(CreateSecureHttpHandler);
-				services.AddSingleton<ImageCache>(provider => new ImageCache(
-					provider.GetRequiredService<IHttpClientFactory>().CreateClient("Images"),
-					Path.Combine(GetAppDataPath(), "cache", "images"),
-					provider.GetRequiredService<ILogger>(),
-					maxConcurrentDownloads: 16));
-
-				services.AddSingleton<Storage>(provider => new Storage(
-					provider.GetRequiredService<ILogger>(),
-					GetAppDataPath(),
-					Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)));
-				services.AddSingleton<SettingsManager>(provider => new SettingsManager(
-					provider.GetRequiredService<Storage>(),
-					provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SettingsManager>>(),
-					@"C:\Games\",
-					Path.Combine(GetAppDataPath(), "logs")));
-				services.AddSingleton<ICredentialProtector, WindowsCredentialProtector>();
-				services.AddSingleton<AuthManager>(provider => new AuthManager(
-					provider.GetRequiredService<ILogger>(),
-					provider.GetRequiredService<Storage>(),
-					provider.GetRequiredService<ICredentialProtector>(),
-					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicOAuth")));
-				services.AddSingleton<IStoreRepository>(provider => new EpicGamesRepository(
-					provider.GetRequiredService<AuthManager>(),
-					provider.GetRequiredService<ILogger>(),
-					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicApi"),
-					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicContent")));
-				services.AddSingleton<IStoreCatalog>(provider => new EpicStoreCatalog(
-					provider.GetRequiredService<ILogger>(),
-					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicStore")));
-				services.AddSingleton<LibraryManager>();
-				services.AddSingleton<ICloudSaveRepository>(provider => new EpicCloudSaveRepository(
-					provider.GetRequiredService<AuthManager>(),
-					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicApi"),
-					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicContent")));
-				services.AddSingleton<CloudSaveManager>(provider =>
-				{
-					var authManager = provider.GetRequiredService<AuthManager>();
-					return new CloudSaveManager(
-						provider.GetRequiredService<ILogger>(),
-						provider.GetRequiredService<ICloudSaveRepository>(),
-						provider.GetRequiredService<LibraryManager>(),
-						provider.GetRequiredService<SettingsManager>(),
-						async () => (await authManager.GetUserData())?.AccountId,
-						Path.Combine(GetAppDataPath(), "cloud-saves"));
-				});
-				services.AddSingleton<IGameShortcutManager>(provider => new GameShortcutManager(
-					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicContent"),
-					provider.GetRequiredService<ILogger>()));
-				services.AddSingleton<IInstallPermissionChecker, FileSystemInstallPermissionChecker>();
-				services.AddSingleton<InstallManager>();
-				services.AddSingleton<DownloadManager>(provider => new DownloadManager(
-					provider.GetRequiredService<ILogger>(),
-					provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicContent")));
-
-				services.AddTransient<SettingsViewModel>();
-				services.AddTransient<DownloadsViewModel>();
-				services.AddTransient<LibraryViewModel>();
-				services.AddTransient<GameInfoViewModel>();
-				services.AddTransient<StoreViewModel>();
-				services.AddTransient<StoreProductViewModel>();
-				services.AddTransient<AppInstallDialogViewModel>();
-			}).
-			Build();
+			var services = new ServiceCollection();
+			ConfigureServices(services);
+			Services = services.BuildServiceProvider();
 
 			// Created now so its launch hooks also cover games started from shortcuts.
-			Host.Services.GetRequiredService<CloudSaveManager>();
+			Services.GetRequiredService<CloudSaveManager>();
+		}
+
+		private void ConfigureServices(ServiceCollection services)
+		{
+			var logger = CreateLogger();
+			Log.Logger = logger;
+			services.AddSingleton<ILogger>(logger);
+			services.AddLogging(logging => logging.AddSerilog(logger));
+			services.ConfigureHttpClientDefaults(client => client.RemoveAllLoggers());
+
+			services.AddSingleton<IUiDispatcher>(new WindowsUiDispatcher(_dispatcherQueue));
+			services.AddSingleton<IFolderLauncher, WindowsFolderLauncher>();
+			services.AddSingleton<IStartupRegistration, WindowsStartupRegistration>();
+			services.AddHttpClient("EpicOAuth", ConfigureEpicClient)
+				.ConfigurePrimaryHttpMessageHandler(CreateSecureHttpHandler);
+			services.AddHttpClient("EpicApi", ConfigureEpicClient)
+				.ConfigurePrimaryHttpMessageHandler(CreateSecureHttpHandler)
+				.AddHttpMessageHandler(static () => new TransientRetryHandler(
+					maxRetries: 5,
+					attemptTimeout: TimeSpan.FromSeconds(5),
+					baseDelay: TimeSpan.FromSeconds(2)));
+			services.AddHttpClient("EpicContent", ConfigureEpicClient)
+				.ConfigurePrimaryHttpMessageHandler(CreateSecureHttpHandler);
+			services.AddHttpClient("EpicStore", ConfigureEpicStoreClient)
+				.ConfigurePrimaryHttpMessageHandler(CreateSecureHttpHandler);
+			services.AddHttpClient("Images", client => client.Timeout = TimeSpan.FromSeconds(30))
+				.ConfigurePrimaryHttpMessageHandler(CreateSecureHttpHandler);
+			services.AddSingleton<ImageCache>(provider => new ImageCache(
+				provider.GetRequiredService<IHttpClientFactory>().CreateClient("Images"),
+				Path.Combine(GetAppDataPath(), "cache", "images"),
+				provider.GetRequiredService<ILogger>(),
+				maxConcurrentDownloads: 16));
+
+			services.AddSingleton<Storage>(provider => new Storage(
+				provider.GetRequiredService<ILogger>(),
+				GetAppDataPath(),
+				Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+				metadataPreload: MetadataPreload));
+			services.AddSingleton<SettingsManager>(provider => new SettingsManager(
+				provider.GetRequiredService<Storage>(),
+				provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SettingsManager>>(),
+				@"C:\Games\",
+				Path.Combine(GetAppDataPath(), "logs")));
+			services.AddSingleton<ICredentialProtector, WindowsCredentialProtector>();
+			services.AddSingleton<AuthManager>(provider => new AuthManager(
+				provider.GetRequiredService<ILogger>(),
+				provider.GetRequiredService<Storage>(),
+				provider.GetRequiredService<ICredentialProtector>(),
+				provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicOAuth")));
+			services.AddSingleton<IStoreRepository>(provider => new EpicGamesRepository(
+				provider.GetRequiredService<AuthManager>(),
+				provider.GetRequiredService<ILogger>(),
+				provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicApi"),
+				provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicContent")));
+			services.AddSingleton<IStoreCatalog>(provider => new EpicStoreCatalog(
+				provider.GetRequiredService<ILogger>(),
+				provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicStore")));
+			services.AddSingleton<LibraryManager>();
+			services.AddSingleton<ICloudSaveRepository>(provider => new EpicCloudSaveRepository(
+				provider.GetRequiredService<AuthManager>(),
+				provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicApi"),
+				provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicContent")));
+			services.AddSingleton<CloudSaveManager>(provider =>
+			{
+				var authManager = provider.GetRequiredService<AuthManager>();
+				return new CloudSaveManager(
+					provider.GetRequiredService<ILogger>(),
+					provider.GetRequiredService<ICloudSaveRepository>(),
+					provider.GetRequiredService<LibraryManager>(),
+					provider.GetRequiredService<SettingsManager>(),
+					async () => (await authManager.GetUserData())?.AccountId,
+					Path.Combine(GetAppDataPath(), "cloud-saves"));
+			});
+			services.AddSingleton<IGameShortcutManager>(provider => new GameShortcutManager(
+				provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicContent"),
+				provider.GetRequiredService<ILogger>()));
+			services.AddSingleton<IInstallPermissionChecker, FileSystemInstallPermissionChecker>();
+			services.AddSingleton<InstallManager>();
+			services.AddSingleton<DownloadManager>(provider => new DownloadManager(
+				provider.GetRequiredService<ILogger>(),
+				provider.GetRequiredService<IHttpClientFactory>().CreateClient("EpicContent")));
+
+			services.AddTransient<SettingsViewModel>();
+			services.AddTransient<DownloadsViewModel>();
+			services.AddTransient<LibraryViewModel>();
+			services.AddTransient<GameInfoViewModel>();
+			services.AddTransient<StoreViewModel>();
+			services.AddTransient<StoreProductViewModel>();
+			services.AddTransient<AppInstallDialogViewModel>();
 		}
 
 		private static string GetAppDataPath() => AppDataPaths.Root;
+
+		private static ILogger CreateLogger()
+		{
+			var logDirectory = Path.Combine(GetAppDataPath(), "logs");
+			_ = Directory.CreateDirectory(logDirectory);
+
+			// A fixed base name, because Serilog only counts files matching it towards the retention limit.
+			return new LoggerConfiguration()
+				.MinimumLevel.Information()
+				.WriteTo.File(
+					Path.Combine(logDirectory, "crimson-.txt"),
+					rollingInterval: RollingInterval.Day,
+					rollOnFileSizeLimit: true,
+					fileSizeLimitBytes: 10 * 1024 * 1024,
+					retainedFileCountLimit: 14,
+					outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}"
+				)
+				.CreateLogger();
+		}
 
 		private static void ConfigureEpicClient(HttpClient client)
 		{
@@ -407,7 +393,7 @@ namespace Crimson
 		}
 		public static T GetService<T>() where T : class
 		{
-			if ((App.Current as App)!.Host.Services.GetService(typeof(T)) is not T service)
+			if ((App.Current as App)!.Services.GetService(typeof(T)) is not T service)
 			{
 				throw new ArgumentException($"{typeof(T)} needs to be registered in ConfigureServices within App.xaml.cs.");
 			}
@@ -417,7 +403,7 @@ namespace Crimson
 
 		private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
 		{
-			var logger = Host?.Services?.GetService(typeof(ILogger)) as ILogger;
+			var logger = Services?.GetService(typeof(ILogger)) as ILogger;
 			logger?.Fatal(e.Exception, "Unhandled exception occurred");
 		}
 	}

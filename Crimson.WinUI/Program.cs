@@ -1,7 +1,9 @@
-﻿using System;
+using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Crimson.Utils;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
@@ -25,6 +27,8 @@ public static class Program
 			return 0;
 		}
 
+		// Parsing every game's record is the slowest step we own, so it overlaps WinUI's own startup.
+		App.MetadataPreload = Task.Run(() => Storage.ReadMetadata(Path.Combine(AppDataPaths.Root, "metadata")));
 		App.InitialActivationArguments = activationArguments;
 		mainInstance.Activated += (_, redirectedArguments) =>
 			App.RouteActivation(redirectedArguments);

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -221,13 +221,6 @@ internal static class JsonManifestReader
 		if (!root.TryGetProperty(name, out var value))
 			throw new InvalidDataException($"JSON manifest field {name} is missing.");
 		return GetBoundedString(value, name);
-	}
-
-	private static bool GetRequiredBoolean(JsonElement root, string name)
-	{
-		if (!root.TryGetProperty(name, out var value) || value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-			throw new InvalidDataException($"JSON manifest field {name} is missing or invalid.");
-		return value.GetBoolean();
 	}
 
 	private static string GetBoundedString(JsonElement value, string name)

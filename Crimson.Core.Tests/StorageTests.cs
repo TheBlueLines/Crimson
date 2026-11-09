@@ -90,6 +90,36 @@ public sealed class StorageTests : IDisposable
 		Assert.False(File.Exists(outsidePath));
 	}
 
+	[Fact]
+	public void StartupPreloadSuppliesCachedGamesAndSkipsCorruptRecords()
+	{
+		var writer = new Storage(_logger, _appDataPath, _appDataPath);
+		writer.SaveMetaData(new Game
+		{
+			AppName = "preloaded-game",
+			AppTitle = "Preloaded",
+			AssetInfos = null!,
+			Metadata = null!
+		});
+		var metadataDirectory = Path.Combine(_appDataPath, "metadata");
+		File.WriteAllText(Path.Combine(metadataDirectory, "corrupt.json"), "{ not json");
+
+		var snapshot = Storage.ReadMetadata(metadataDirectory);
+		var storage = new Storage(_logger, _appDataPath, _appDataPath, metadataPreload: Task.FromResult(snapshot));
+
+		Assert.Equal("Preloaded", storage.GetGameMetaData("preloaded-game")!.AppTitle);
+		Assert.Single(storage.GameMetaDataDictionary);
+	}
+
+	[Fact]
+	public void StartupPreloadToleratesAMissingDirectory()
+	{
+		var snapshot = Storage.ReadMetadata(Path.Combine(_appDataPath, "does-not-exist"));
+		var storage = new Storage(_logger, _appDataPath, _appDataPath, metadataPreload: Task.FromResult(snapshot));
+
+		Assert.Empty(storage.GameMetaDataDictionary);
+	}
+
 	public void Dispose()
 	{
 		if (Directory.Exists(_appDataPath))

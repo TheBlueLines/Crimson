@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -14,41 +14,11 @@ public sealed class CDL
 	public List<ChunkInfo> Elements { get; } = [];
 
 	private readonly int _manifestVersion;
-	private Dictionary<string, int>? _guidMap;
 	private Dictionary<BigInteger, int>? _guidIntMap;
-	private Dictionary<string, int>? _pathMap;
 
 	public CDL(int manifestVersion = 18)
 	{
 		_manifestVersion = manifestVersion;
-	}
-
-	public ChunkInfo GetChunkByPath(string path)
-	{
-		_pathMap ??= Elements
-			.Select((element, index) => (element.Path, index))
-			.ToDictionary(item => item.Path, item => item.index, StringComparer.Ordinal);
-		return _pathMap.TryGetValue(path, out var index)
-			? Elements[index]
-			: throw new ArgumentException($"Invalid chunk path: {path}", nameof(path));
-	}
-
-	public ChunkInfo GetChunkByGuid(object guid) => guid switch
-	{
-		int integer => GetChunkByGuidNum(new BigInteger(integer)),
-		BigInteger integer => GetChunkByGuidNum(integer),
-		string text => GetChunkByGuidStr(text),
-		_ => throw new ArgumentException("Invalid chunk GUID type.", nameof(guid))
-	};
-
-	public ChunkInfo GetChunkByGuidStr(string guid)
-	{
-		_guidMap ??= Elements
-			.Select((element, index) => (Guid: element.GuidStr, index))
-			.ToDictionary(item => item.Guid, item => item.index, StringComparer.OrdinalIgnoreCase);
-		return _guidMap.TryGetValue(guid, out var index)
-			? Elements[index]
-			: throw new ArgumentException($"Invalid chunk GUID: {guid}", nameof(guid));
 	}
 
 	public ChunkInfo GetChunkByGuidNum(BigInteger guid)

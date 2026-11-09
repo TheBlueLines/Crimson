@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using Crimson.Utils;
-using Ionic.Zlib;
 
 namespace Crimson.Models;
 
@@ -293,7 +293,7 @@ internal static class CloudSavePackager
 	private static byte[] Compress(byte[] data)
 	{
 		using var output = new MemoryStream();
-		using (var zlib = new ZlibStream(output, CompressionMode.Compress, leaveOpen: true))
+		using (var zlib = new ZLibStream(output, CompressionLevel.Optimal, leaveOpen: true))
 			zlib.Write(data, 0, data.Length);
 		return output.ToArray();
 	}

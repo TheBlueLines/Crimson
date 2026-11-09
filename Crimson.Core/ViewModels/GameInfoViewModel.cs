@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -81,7 +81,6 @@ public partial class GameInfoViewModel : ObservableObject, INavigationAware
 
 	// Event for showing install dialog
 	public event Func<Task> ShowInstallDialogRequested;
-	public event Action CloseInstallDialogRequested;
 
 	// Event for requesting folder picker from view
 	public event Func<Task<string>> FolderPickerRequested;

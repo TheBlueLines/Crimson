@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -359,16 +359,6 @@ namespace Crimson.Repository
 			var request = new HttpRequestMessage(method, EpicEndpointPolicy.RequireApiUri(value));
 			request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 			return request;
-		}
-	}
-
-
-	public static class StringExtensions
-	{
-		public static string SubstringBeforeLast(this string source, string delimiter)
-		{
-			var lastIndexOfDelimiter = source.LastIndexOf(delimiter, StringComparison.Ordinal);
-			return lastIndexOfDelimiter == -1 ? source : source.Substring(0, lastIndexOfDelimiter);
 		}
 	}
 }

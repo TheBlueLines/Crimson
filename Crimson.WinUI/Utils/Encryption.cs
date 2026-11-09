@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Security.Cryptography;
 using Crimson.Core;
@@ -65,8 +65,6 @@ public static class KeyManager
 		rng.GetBytes(key);
 		return key;
 	}
-
-	public static string EncryptString(string text) => CredentialProtector.Protect(text);
 
 	public static string DecryptString(string cipherText) => CredentialProtector.Unprotect(cipherText);
 }

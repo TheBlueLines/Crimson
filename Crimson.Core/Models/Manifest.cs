@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Ionic.Zlib;
 
 namespace Crimson.Models;
 
@@ -120,7 +120,7 @@ public sealed class Manifest
 	private static byte[] Decompress(byte[] data, int expectedSize)
 	{
 		using var compressedStream = new MemoryStream(data, writable: false);
-		using var zlibStream = new ZlibStream(compressedStream, CompressionMode.Decompress);
+		using var zlibStream = new ZLibStream(compressedStream, CompressionMode.Decompress);
 		try
 		{
 			var result = new byte[expectedSize];
@@ -144,10 +144,6 @@ public sealed class Manifest
 				throw new InvalidDataException("Manifest decompressed size does not match its declaration.");
 
 			return result;
-		}
-		catch (ZlibException exception)
-		{
-			throw new InvalidDataException("Manifest compressed payload is invalid.", exception);
 		}
 		catch (OverflowException exception)
 		{
